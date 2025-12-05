@@ -18,6 +18,8 @@ model_stop = pd.read_excel("output_excel/Model_Stops_V3.xlsx")
 
 sensor_loc = sensor_loc[sensor_loc["State"] != "AK"].copy()
 
+print(1)
+
 # search = SearchEngine()
 #
 # def get_zip(row):
@@ -30,11 +32,15 @@ sensor_loc["ZIP3"] = sensor_loc["ZIP5"].str[:3]
 
 sensor_loc.drop(columns="ZIP5", inplace=True)
 
+print(2)
+
 con = duckdb.connect()
 con.register("sensor_loc", sensor_loc)
 
 out_dir = os.path.join(path, r"5. Source & Refrence Files\2024_traffic_parquet")
 traffic_parquet_glob = f"{out_dir}/traffic_part_*.parquet"
+
+print(3)
 
 con.execute(f"""
     CREATE OR REPLACE TABLE traffic_matched AS
@@ -60,6 +66,8 @@ con.execute(f"""
     WHERE s."Latitude" IS NULL
 """)
 
+print(4)
+
 con.execute("""
             UPDATE traffic_unmatched
             SET station_id = ltrim(station_id, '0')
@@ -72,6 +80,8 @@ con.execute('ALTER TABLE traffic_unmatched DROP COLUMN State_1')
 con.execute('ALTER TABLE traffic_unmatched DROP COLUMN "Station Id"')
 
 con.execute('ALTER TABLE traffic_unmatched DROP COLUMN ZIP3')
+
+print(5)
 
 con.execute("""
             INSERT INTO traffic_matched
@@ -90,16 +100,21 @@ con.execute("""CREATE OR REPLACE TABLE traffic_gp_matched  AS
                group by record_type,state_code,f_system,station_id,travel_dir,year_record,month_record,day_record,day_of_week,restrictions,hours,State,Latitude,Longitude,"Functional Class",State_1,"Station Id",ZIP3
             """)
 
+print(6)
+
 df = con.execute("""select State_1,
                            ZIP3,
                            travel_dir,
                            day_of_week,
                            hours,
-                           avg(traffic_volume),
+                           avg(traffic_volume)                          as avg_traffic,
                            median(traffic_volume),
                            stddev(traffic_volume),
-                           stddev(traffic_volume) / avg(traffic_volume) as CV
+                           stddev(traffic_volume) / avg(traffic_volume) as CV,
+                           lane_count
                     from traffic_gp_matched
-                    group by State_1, ZIP3, travel_dir, day_of_week, hours""").df()
+                    group by State_1, ZIP3, travel_dir, day_of_week, hours, lane_count""").df()
 
-print(df.shape)
+print(7)
+
+df.to_csv("ZIP3_agg_data.csv", index=False)
