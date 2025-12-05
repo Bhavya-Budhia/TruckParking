@@ -13,8 +13,6 @@ path = r"C:\Users\bhavy\Massachusetts Institute of Technology\Truck Parking Caps
 
 sensor_loc = pd.read_csv(path + r"5. Source & Refrence Files\sensor_loc_w_ZIP5.csv",
                          dtype={"station_id": 'str', 'ZIP5': 'str'})
-state_map = pd.read_csv(path + r"5. Source & Refrence Files\State_mapping.csv")
-model_stop = pd.read_excel("output_excel/Model_Stops_V3.xlsx")
 
 sensor_loc = sensor_loc[sensor_loc["State"] != "AK"].copy()
 
