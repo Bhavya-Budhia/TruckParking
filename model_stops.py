@@ -9,6 +9,7 @@ from haversine import haversine_vector, Unit
 # -----------------------------
 # Config / Paths
 # -----------------------------
+# Loading data files from Trucker Path
 @dataclass(frozen=True)
 class DataPaths:
     base: str
@@ -45,6 +46,7 @@ class DataPaths:
 # -----------------------------
 # Helper functions
 # -----------------------------
+#Calculating distances
 def haversine_miles(
         df: pd.DataFrame,
         latlon_a_cols: List[str],
@@ -55,6 +57,7 @@ def haversine_miles(
     return haversine_vector(df[latlon_a_cols], df[latlon_b_cols], Unit.MILES) * inflate_factor
 
 
+#Amenities Data: normalizing numerical value columns
 def normalize_within_group(df: pd.DataFrame, group_col: str, value_col: str) -> pd.Series:
     """Min-max normalize value_col within each group_col. Handles constant groups safely."""
 
@@ -67,6 +70,7 @@ def normalize_within_group(df: pd.DataFrame, group_col: str, value_col: str) -> 
     return df.groupby(group_col)[value_col].transform(_minmax)
 
 
+#Converting state numbers to 2 letter IDs
 def coerce_state_ids(df: pd.DataFrame, col: str = "stateid") -> pd.DataFrame:
     """Maps a few numeric state codes to 2-letter abbreviations."""
     mapping = {
@@ -80,6 +84,7 @@ def coerce_state_ids(df: pd.DataFrame, col: str = "stateid") -> pd.DataFrame:
     return df
 
 
+#Removing truck stop records within 0.1 miles of one another; assumed to be the same truck stop
 def resolve_close_duplicates(
         df: pd.DataFrame,
         dist_threshold_miles: float = 0.1,
@@ -93,6 +98,7 @@ def resolve_close_duplicates(
     - If counts differ, keep the bigger count and zero out the smaller
     Returns (unique_id_table, updated_df, check)
     """
+
     df = df.copy()
     if "ucount2" in df.columns:
         df.drop(columns=["ucount2"], inplace=True)
@@ -106,7 +112,7 @@ def resolve_close_duplicates(
         Unit.MILES
     ) * inflate_factor
 
-    # Make unordered pair key
+    # Make unordered pair key of pin IDs
     a["pair"] = a.apply(lambda x: tuple(sorted([x["pin id_x"], x["pin id_y"]])), axis=1)
     a = a.drop_duplicates(subset="pair", keep="first").drop(columns=["pair"])
 
@@ -127,6 +133,7 @@ def resolve_close_duplicates(
         df["truckParkingSpotCount"] = np.where(df["pin id"].isin(list_to_rm), 0, df["truckParkingSpotCount"])
         return pd.DataFrame(columns=["pin id", "ucount2"]), df, 0
 
+    #Within TruckerPath data, comparing duplicate truck stop records; selecting record with higher parking spot count
     a["bigger"] = np.where(a["truckParkingSpotCount_y"] > a["truckParkingSpotCount_x"], "y", "x")
     a["truckParkingSpotCount_y"] = np.where(a["bigger"] == "x", 0, a["truckParkingSpotCount_y"])
     a["truckParkingSpotCount_x"] = np.where(a["bigger"] == "y", 0, a["truckParkingSpotCount_x"])
@@ -150,6 +157,7 @@ def resolve_close_duplicates(
 # -----------------------------
 # Main class
 # -----------------------------
+#Creating classes and filling with data
 class TruckStopModel:
     def __init__(self, base_path: str):
         self.paths = DataPaths(base_path)
@@ -226,6 +234,7 @@ class TruckStopModel:
         ].copy()
         return nearest
 
+    #pulling in truck stop names to stop_tab_df
     def _attach_stop_names_and_link_id(self, nearest: pd.DataFrame) -> pd.DataFrame:
         assert self.park_data is not None
 
@@ -235,6 +244,7 @@ class TruckStopModel:
         stop_tab_df = pd.merge(nearest, stop_name_df, left_on="Pin ID", right_on="pin id", how="left")
         print(stop_tab_df.shape)
 
+        #creating link_id column to use for further matching
         stop_tab_df["link_id"] = (
                 stop_tab_df["routeid"].astype(str)
                 + "_"
@@ -243,12 +253,14 @@ class TruckStopModel:
                 + stop_tab_df["endpoint"].astype(str)
         )
 
+        #selecting columns and creating review_score column
         stop_tab_df = stop_tab_df[
             ["pin id", "pinname", "lat", "lng", "truckParkingSpotCount", "f_system", "link_id", "overnightParking"]
         ].copy()
         stop_tab_df["review_score"] = ""
         return stop_tab_df
 
+    #comparing Trucker Path data with Ginny and Christina's previous truck stop file 2024
     def _override_parking_counts_with_gc(self, stop_tab_df: pd.DataFrame) -> pd.DataFrame:
         """Your Ginny & Christina cross-check logic."""
         assert self.df_comb is not None
@@ -288,6 +300,7 @@ class TruckStopModel:
         out["truckParkingSpotCount"] = np.where(out["ucount"].isnull(), out["truckParkingSpotCount"], out["ucount"])
         return out
 
+    #removing duplicates by pin ID
     def _dedupe_close_stops_iteratively(self, stop_tab_df: pd.DataFrame) -> pd.DataFrame:
         """Your while-loop that repeatedly resolves close-by duplicates."""
         # One-off manual fix
@@ -315,6 +328,7 @@ class TruckStopModel:
 
         return stop_tab_df
 
+    #Amenity Score Calculation
     def _compute_amenities_score(self, stop_tab_df: pd.DataFrame) -> pd.DataFrame:
         assert self.df_amenities is not None
 
@@ -329,6 +343,7 @@ class TruckStopModel:
         df_amenities = df_amenities[df_amenities["Pin ID"].isin(stop_tab_df["pin id"].unique())].copy()
         df_amenities.fillna(0, inplace=True)
 
+        #Normalization of numerical amenity values
         for c in ["showerCount", "atmCount"]:
             df_amenities[f"{c}_norm"] = normalize_within_group(df_amenities, "state", c)
 
@@ -337,6 +352,7 @@ class TruckStopModel:
             "faxScanService", "pool", "laundry", "gym", "work24h7d", "lightedParking",
             "lightedBathroomAccess", "reserved_parking", "freePark", "showerCount_norm", "atmCount_norm",
         ]
+        #Calculating amenity score: all amenities are equally weighted
         df_amenities["amenities_score"] = df_amenities[cols].sum(axis=1) / len(cols)
         df_amenities = df_amenities[["Pin ID", "amenities_score"]].copy()
 
@@ -344,6 +360,7 @@ class TruckStopModel:
         out["overnightParking"] = out["overnightParking"].fillna(False)
         return out
 
+    #using run function to call all functions above
     def run(self) -> pd.DataFrame:
         """
         Main pipeline.
@@ -355,6 +372,7 @@ class TruckStopModel:
 
         self._prep_inputs()
 
+        #creating empty df
         nearest = self._nearest_stop_per_pin_within_state()
         if nearest.empty:
             return pd.DataFrame(columns=[
@@ -377,6 +395,7 @@ class TruckStopModel:
 # -----------------------------
 # Backwards-compatible wrapper
 # -----------------------------
+#creating a class and calling the run function
 def model_stop(
         base_path: str = r"C:\Users\bhavy\Massachusetts Institute of Technology\Truck Parking Capstone - General\Truck Stop Finder 🚚⛽\\"
         # base_path: str = r"C:\Users\samcl\Massachusetts Institute of Technology\Truck Parking Capstone - Truck Stop Finder 🚚⛽\\"
