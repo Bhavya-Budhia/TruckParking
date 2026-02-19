@@ -379,5 +379,6 @@ class TruckStopModel:
 # -----------------------------
 def model_stop(
         base_path: str = r"C:\Users\bhavy\Massachusetts Institute of Technology\Truck Parking Capstone - General\Truck Stop Finder 🚚⛽\\"
+        # base_path: str = r"C:\Users\samcl\Massachusetts Institute of Technology\Truck Parking Capstone - Truck Stop Finder 🚚⛽\\"
 ) -> pd.DataFrame:
     return TruckStopModel(base_path).run()
