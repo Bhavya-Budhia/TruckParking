@@ -4,6 +4,7 @@ from haversine import haversine_vector, Unit
 
 
 def model_stop():
+    am_weight_dict = {}
     path = r"C:\Users\bhavy\Massachusetts Institute of Technology\Truck Parking Capstone - General\Truck Stop Finder 🚚⛽\\"
     # path = r"C:\Users\samcl\Massachusetts Institute of Technology\Truck Parking Capstone - Truck Stop Finder 🚚⛽\\"
 
@@ -17,6 +18,8 @@ def model_stop():
 
     df_amenities = pd.read_excel(
         path + r"5. Source & Refrence Files\0. TruckerPath Data\MIT parking location amenities.xlsx")
+
+    df_am_weight = pd.read_csv(path + r"5. Source & Refrence Files\am_weight.csv")
 
     # Sourced directly from TruckerPath
     park_data_1 = pd.read_csv(
@@ -40,6 +43,8 @@ def model_stop():
     df_merged_file['stateid'] = np.where(df_merged_file['stateid'] == '12', 'FL', df_merged_file['stateid'])
     df_merged_file['stateid'] = np.where(df_merged_file['stateid'] == '13', 'GA', df_merged_file['stateid'])
     df_merged_file['stateid'] = np.where(df_merged_file['stateid'] == '45', 'SC', df_merged_file['stateid'])
+
+    df_ex = df_merged_file.copy()
 
     # df_merged_file.to_csv(
     #     path + r"4. Working Data Files\Traffic Files\Capstone_truck\merged_filtered_modified.csv", index=False)
@@ -210,7 +215,19 @@ def model_stop():
             'faxScanService', 'pool', 'laundry', 'gym', 'work24h7d',
             'lightedParking', 'lightedBathroomAccess', 'reserved_parking',
             'freePark', 'showerCount_norm', 'atmCount_norm']
-    df_amenities["amenities_score"] = df_amenities[cols].sum(axis=1) / len(cols)
+
+    df_am_weight["weight"] = df_am_weight["weight"] / df_am_weight["weight"].sum()
+
+    for i, row in df_am_weight.iterrows():
+        c = row["column"]
+        w = row["weight"]
+        am_weight_dict[c] = w
+
+    df_amenities["amenities_score"] = (df_amenities[cols] * pd.Series(am_weight_dict)).sum(axis=1)
+    # df_amenities["amenities_score"] = df_amenities[cols].sum(axis=1) / len(cols)
+
+    print(df_amenities["amenities_score"].describe())
+    # sys.exit()
 
     df_amenities = df_amenities[['Pin ID', 'amenities_score']].copy()
 
@@ -218,4 +235,7 @@ def model_stop():
 
     stop_tab_df['overnightParking'] = stop_tab_df['overnightParking'].fillna(False)
 
-    return stop_tab_df[columns]
+    return stop_tab_df[columns], df_ex
+
+
+model_stop()
