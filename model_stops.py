@@ -237,5 +237,4 @@ def model_stop_func():
 
     return stop_tab_df[columns], df_ex
 
-
-model_stop()
+# model_stop()
