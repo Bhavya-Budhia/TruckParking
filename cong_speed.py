@@ -8,7 +8,7 @@ import h3
 import pandas as pd
 from shapely.geometry import Polygon
 
-from model_stops import model_stop
+from model_stops import model_stop_func
 
 warnings.filterwarnings("ignore")
 
@@ -18,7 +18,7 @@ path = r"C:\Users\bhavy\Massachusetts Institute of Technology\Truck Parking Caps
 sensor_loc = pd.read_csv(path + r"5. Source & Refrence Files\sensor_loc_w_ZIP5.csv",
                          dtype={"station_id": 'str', 'ZIP5': 'str'})
 state_map = pd.read_csv(path + r"5. Source & Refrence Files\State_mapping.csv")
-model_stop, traffic_df = model_stop()
+model_stop, traffic_df = model_stop_func()
 # traffic_df = pd.read_csv(path + r"4. Working Data Files\Traffic Files\Capstone_truck\merged_filtered_modified.csv")
 
 

@@ -3,7 +3,7 @@ import pandas as pd
 from haversine import haversine_vector, Unit
 
 
-def model_stop():
+def model_stop_func():
     am_weight_dict = {}
     path = r"C:\Users\bhavy\Massachusetts Institute of Technology\Truck Parking Capstone - General\Truck Stop Finder 🚚⛽\\"
     # path = r"C:\Users\samcl\Massachusetts Institute of Technology\Truck Parking Capstone - Truck Stop Finder 🚚⛽\\"
