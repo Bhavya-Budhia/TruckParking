@@ -1,5 +1,6 @@
 import math
 
+import h3
 import pandas as pd
 from scgraph.geographs.us_freeway import us_freeway_geograph
 
@@ -74,9 +75,8 @@ freeflow_mph_dict = {
     3: 65
 }
 
-
-truck_stop_df["driver_lat"] = 32.08
-truck_stop_df["driver_lon"] = -81.09
+truck_stop_df["driver_lat"] = 28.509696
+truck_stop_df["driver_lon"] = -81.737782
 truck_stop_df["start_time"] = pd.Timestamp("2023-12-02 12:20:00")
 truck_stop_df["dest_lat"] = 27.95
 truck_stop_df["dest_lon"] = -82.46
@@ -140,6 +140,37 @@ truck_stop_df["hour_24"] = "hour_" + truck_stop_df["ETA_stop"].dt.hour.astype(st
 
 # Optional: remove heavy path objects before saving
 truck_stop_df = truck_stop_df.drop(columns=["driver_stop_path", "stop_dest_path", "driver_dest_path"])
+
+
+def bearing_to_travel_dir(bearing):
+    if bearing >= 315 or bearing < 45:
+        return 1  # North
+    elif bearing < 135:
+        return 3  # East
+    elif bearing < 225:
+        return 5  # South
+    else:
+        return 7  # West
+
+
+truck_stop_df["travel_dir"] = truck_stop_df["bearing_driver_to_stop_route"].apply(bearing_to_travel_dir)
+
+truck_stop_df["pol_2"] = truck_stop_df.apply(
+    lambda r: h3.latlng_to_cell(r["lat"], r["lng"], 2),
+    axis=1
+)
+
+truck_stop_df["pol_3"] = truck_stop_df.apply(
+    lambda r: h3.latlng_to_cell(r["lat"], r["lng"], 3),
+    axis=1
+)
+
+truck_stop_df["pol_4"] = truck_stop_df.apply(
+    lambda r: h3.latlng_to_cell(r["lat"], r["lng"], 4),
+    axis=1
+)
+
+
 
 truck_stop_df.to_csv("1.csv", index=False)
 
