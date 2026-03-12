@@ -1,3 +1,6 @@
+from pathlib import Path
+
+import joblib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -234,7 +237,7 @@ decisions["tau_min"] = decisions["distance_mi"] / 55
 decisions.rename(columns={"t_obs": "t0"}, inplace=True)
 
 # 3) Compute ETA
-decisions["eta_ts"] = decisions["t0"] + pd.to_timedelta(decisions["tau_min"], unit="m")
+decisions["eta_ts"] = decisions["t0"] + pd.to_timedelta(decisions["tau_min"], unit="h")
 
 # 4) Add ETA calendar features (these are allowed; you know ETA at decision time)
 decisions["eta_hour"] = decisions["eta_ts"].dt.hour
@@ -398,3 +401,20 @@ print(confusion_matrix(y_test, y_pred))
 
 print("\nClassification Report:")
 print(classification_report(y_test, y_pred, digits=3))
+
+artifact_dir = Path("output_excel")
+artifact_dir.mkdir(parents=True, exist_ok=True)
+
+model_bundle = {
+    "model": base_model,  # use base_model since you said don't change forecasting model yet
+    "threshold_full": threshold,
+    "num_features": num_features,
+    "cat_features": cat_features,
+}
+
+joblib.dump(model_bundle, artifact_dir / "parking_availability_model.joblib")
+
+# save parking observation history for inference-time lookup
+obs_sorted.to_parquet(artifact_dir / "parking_obs_sorted.parquet", index=False)
+
+print("Saved model and obs history.")
