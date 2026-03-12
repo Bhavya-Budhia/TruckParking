@@ -59,14 +59,15 @@ def bearing_to_compass(bearing):
     return directions[round(bearing / 45) % 8]
 
 
-def extract_route_direction(path_output):
+def extract_route_direction_near_stop(path_output):
     path = path_output.get("coordinate_path")
 
     if path is None or len(path) < 2:
         return pd.Series([None, None])
 
-    lat1, lon1 = path[0]
-    lat2, lon2 = path[1]
+    # use the last two points, so direction is near the stop / destination end
+    lat1, lon1 = path[-2]
+    lat2, lon2 = path[-1]
 
     bearing = bearing_from_points(lat1, lon1, lat2, lon2)
     direction = bearing_to_compass(bearing)
@@ -114,7 +115,7 @@ truck_stop_df["driver_stop_path"] = truck_stop_df.apply(
 truck_stop_df["truck_stop_mi"] = truck_stop_df["driver_stop_path"].apply(lambda x: x["length"])
 
 truck_stop_df[["bearing_driver_to_stop_route", "dir_driver_to_stop_route"]] = (
-    truck_stop_df["driver_stop_path"].apply(extract_route_direction)
+    truck_stop_df["driver_stop_path"].apply(extract_route_direction_near_stop)
 )
 
 # ---------------------------------------------------
@@ -221,6 +222,22 @@ truck_stop_df["traffic"] = np.where(truck_stop_df["traffic_h4"].isnull(), truck_
                                     truck_stop_df["traffic_h4"])
 truck_stop_df["traffic"] = np.where(truck_stop_df["traffic"].isnull(), truck_stop_df["traffic_h2"],
                                     truck_stop_df["traffic"])
+
+# TODO: Change this later
+p90 = truck_stop_df["traffic"].quantile(0.90)
+
+truck_stop_df["traffic_factor"] = 1 - (truck_stop_df["traffic"] / p90) * 0.5
+truck_stop_df["traffic_factor"] = truck_stop_df["traffic_factor"].clip(lower=0.3, upper=1.0)
+
+truck_stop_df["adj_speed_mph"] = truck_stop_df["freeflow_mph"] * truck_stop_df["traffic_factor"]
+
+truck_stop_df["ETA_stop_adj"] = truck_stop_df["start_time"] + pd.to_timedelta(
+    truck_stop_df["truck_stop_mi"] / truck_stop_df["adj_speed_mph"],
+    unit="h"
+)
+
+truck_stop_df["day_of_week_adj"] = truck_stop_df["ETA_stop_adj"].dt.weekday + 1
+truck_stop_df["hour_24_adj"] = "hour_" + truck_stop_df["ETA_stop_adj"].dt.hour.astype(str).str.zfill(2)
 
 
 truck_stop_df.to_csv("1.csv", index=False)
