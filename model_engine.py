@@ -1,6 +1,8 @@
 import math
+from pathlib import Path
 
 import h3
+import joblib
 import numpy as np
 import pandas as pd
 from scgraph.geographs.us_freeway import us_freeway_geograph
@@ -19,7 +21,41 @@ cong_2_df = pd.read_csv(
     path + r"5. Source & Refrence Files\Congestion_speed_r_2.csv")
 
 
+def attach_last_obs_before_inference(query_df, obs_sorted, time_col="query_ts"):
+    q = query_df.copy()
+    q[time_col] = pd.to_datetime(q[time_col], utc=True, errors="coerce")
+    q = q.dropna(subset=[time_col]).sort_values([time_col, "pin id"]).reset_index(drop=True)
 
+    obs_sorted = obs_sorted.copy()
+    obs_sorted["ts_utc"] = pd.to_datetime(obs_sorted["ts_utc"], utc=True, errors="coerce")
+    obs_sorted = obs_sorted.dropna(subset=["ts_utc"]).sort_values(["ts_utc", "pin id"]).reset_index(drop=True)
+
+    out = pd.merge_asof(
+        q,
+        obs_sorted.rename(
+            columns={
+                "ts_utc": "last_ts",
+                "status_ord": "last_status_ord",
+                "parking status": "last_status_txt"
+            }
+        ),
+        left_on=time_col,
+        right_on="last_ts",
+        by="pin id",
+        direction="backward",
+        allow_exact_matches=True
+    )
+
+    out["time_since_last_obs_min"] = (
+                                             out[time_col] - out["last_ts"]
+                                     ).dt.total_seconds() / 60
+
+    # same staleness rule as training
+    stale_cutoff = pd.Timedelta("6h")
+    too_stale = (out[time_col] - out["last_ts"]) > stale_cutoff
+    out.loc[too_stale, ["last_status_ord", "last_status_txt", "last_ts"]] = pd.NA
+
+    return out
 
 def get_shortest_path_output(row, origin_lat, origin_lon, dest_lat, dest_lon):
     return us_freeway_geograph.get_shortest_path(
@@ -92,7 +128,7 @@ freeflow_mph_dict = {
 
 truck_stop_df["driver_lat"] = 28.509696
 truck_stop_df["driver_lon"] = -81.737782
-truck_stop_df["start_time"] = pd.Timestamp("2023-12-02 12:20:00")
+truck_stop_df["start_time"] = pd.Timestamp("2023-12-02 12:20:00", tz="UTC")
 truck_stop_df["dest_lat"] = 27.95
 truck_stop_df["dest_lon"] = -82.46
 truck_stop_df["HOS_left_hr"] = 5
@@ -239,7 +275,58 @@ truck_stop_df["ETA_stop_adj"] = truck_stop_df["start_time"] + pd.to_timedelta(
 truck_stop_df["day_of_week_adj"] = truck_stop_df["ETA_stop_adj"].dt.weekday + 1
 truck_stop_df["hour_24_adj"] = "hour_" + truck_stop_df["ETA_stop_adj"].dt.hour.astype(str).str.zfill(2)
 
+# ----------------------------
+# Build parking-model features
+# ----------------------------
 
-truck_stop_df.to_csv("1.csv", index=False)
+# training used Monday=0 for eta_day_of_week
+truck_stop_df["eta_hour"] = truck_stop_df["ETA_stop_adj"].dt.hour
+truck_stop_df["eta_day_of_week"] = truck_stop_df["ETA_stop_adj"].dt.dayofweek
+truck_stop_df["eta_month"] = truck_stop_df["ETA_stop_adj"].dt.month
+
+# if route_num is not present in model_engine, create a fallback
+if "route_num" not in truck_stop_df.columns:
+    truck_stop_df["route_num"] = "Unknown"
+
+artifact_dir = Path("output_excel")
+
+model_bundle = joblib.load(artifact_dir / "parking_availability_model.joblib")
+parking_model = model_bundle["model"]
+threshold_full = model_bundle["threshold_full"]
+
+obs_sorted = pd.read_parquet(artifact_dir / "parking_obs_sorted.parquet")
+
+parking_query = truck_stop_df[["pin id", "start_time"]].copy()
+parking_query = parking_query.rename(columns={"start_time": "query_ts"})
+
+parking_feat = attach_last_obs_before_inference(
+    parking_query,
+    obs_sorted=obs_sorted,
+    time_col="query_ts"
+)
+
+truck_stop_df["last_status_ord"] = parking_feat["last_status_ord"].values
+truck_stop_df["time_since_last_obs_min"] = parking_feat["time_since_last_obs_min"].values
+
+feature_cols = [
+    "last_status_ord",
+    "time_since_last_obs_min",
+    "eta_hour",
+    "eta_day_of_week",
+    "eta_month",
+    "route_num",
+]
+
+X_pred = truck_stop_df[feature_cols].copy()
+
+truck_stop_df["p_full"] = parking_model.predict_proba(X_pred)[:, 1]
+truck_stop_df["parking_available_pred"] = (
+        truck_stop_df["p_full"] < threshold_full
+).astype(int)
+
+truck_stop_df["p_available"] = 1 - truck_stop_df["p_full"]
+
+truck_stop_df.to_csv("1_with_parking_predictions.csv", index=False)
+
 
 print(truck_stop_df.columns)
