@@ -1,10 +1,24 @@
 import math
 
 import h3
+import numpy as np
 import pandas as pd
 from scgraph.geographs.us_freeway import us_freeway_geograph
 
 from model_stops import model_stop_func
+
+path = r"C:\Users\bhavy\Massachusetts Institute of Technology\Truck Parking Capstone - General\Truck Stop Finder 🚚⛽\\"
+# path = r"C:\Users\samcl\Massachusetts Institute of Technology\Truck Parking Capstone - Truck Stop Finder 🚚⛽\\"
+
+# Sourced directly from TruckerPath
+cong_4_df = pd.read_csv(
+    path + r"5. Source & Refrence Files\Congestion_speed_r_4.csv")
+cong_3_df = pd.read_csv(
+    path + r"5. Source & Refrence Files\Congestion_speed_r_3.csv")
+cong_2_df = pd.read_csv(
+    path + r"5. Source & Refrence Files\Congestion_speed_r_2.csv")
+
+
 
 
 def get_shortest_path_output(row, origin_lat, origin_lon, dest_lat, dest_lon):
@@ -170,9 +184,45 @@ truck_stop_df["pol_4"] = truck_stop_df.apply(
     axis=1
 )
 
+cong_4_df = cong_4_df.groupby(["polygon", "travel_dir", "day_of_week", "hours"]).agg(
+    {"avg_traffic": "mean"}).reset_index()
+cong_4_df.rename(columns={"avg_traffic": "traffic_h4"}, inplace=True)
+
+a = truck_stop_df.shape[0]
+truck_stop_df = pd.merge(truck_stop_df, cong_4_df, left_on=["pol_4", "travel_dir", "day_of_week", "hour_24"],
+                         right_on=["polygon", "travel_dir", "day_of_week", "hours"], how="left")
+b = truck_stop_df.shape[0]
+
+assert a == b, f"a ({a}) is not equal to b ({b})"
+
+cong_3_df = cong_3_df.groupby(["polygon", "travel_dir", "day_of_week", "hours"]).agg(
+    {"avg_traffic": "mean"}).reset_index()
+cong_3_df.rename(columns={"avg_traffic": "traffic_h3"}, inplace=True)
+
+a = truck_stop_df.shape[0]
+truck_stop_df = pd.merge(truck_stop_df, cong_3_df, left_on=["pol_3", "travel_dir", "day_of_week", "hour_24"],
+                         right_on=["polygon", "travel_dir", "day_of_week", "hours"], how="left")
+b = truck_stop_df.shape[0]
+
+assert a == b, f"a ({a}) is not equal to b ({b})"
+
+cong_2_df = cong_2_df.groupby(["polygon", "travel_dir", "day_of_week", "hours"]).agg(
+    {"avg_traffic": "mean"}).reset_index()
+cong_2_df.rename(columns={"avg_traffic": "traffic_h2"}, inplace=True)
+
+a = truck_stop_df.shape[0]
+truck_stop_df = pd.merge(truck_stop_df, cong_2_df, left_on=["pol_2", "travel_dir", "day_of_week", "hour_24"],
+                         right_on=["polygon", "travel_dir", "day_of_week", "hours"], how="left")
+b = truck_stop_df.shape[0]
+
+assert a == b, f"a ({a}) is not equal to b ({b})"
+
+truck_stop_df["traffic"] = np.where(truck_stop_df["traffic_h4"].isnull(), truck_stop_df["traffic_h3"],
+                                    truck_stop_df["traffic_h4"])
+truck_stop_df["traffic"] = np.where(truck_stop_df["traffic"].isnull(), truck_stop_df["traffic_h2"],
+                                    truck_stop_df["traffic"])
 
 
 truck_stop_df.to_csv("1.csv", index=False)
 
 print(truck_stop_df.columns)
-print(truck_stop_df.head())
