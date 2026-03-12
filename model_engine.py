@@ -23,11 +23,12 @@ cong_2_df = pd.read_csv(
 
 def attach_last_obs_before_inference(query_df, obs_sorted, time_col="query_ts"):
     q = query_df.copy()
-    q[time_col] = pd.to_datetime(q[time_col], utc=True, errors="coerce")
+    q[time_col] = pd.to_datetime(q[time_col], utc=True, errors="coerce").astype("datetime64[ns, UTC]")
     q = q.dropna(subset=[time_col]).sort_values([time_col, "pin id"]).reset_index(drop=True)
 
     obs_sorted = obs_sorted.copy()
-    obs_sorted["ts_utc"] = pd.to_datetime(obs_sorted["ts_utc"], utc=True, errors="coerce")
+    obs_sorted["ts_utc"] = pd.to_datetime(obs_sorted["ts_utc"], utc=True, errors="coerce").astype("datetime64[ns, UTC]")
+    # obs_sorted["ts_utc"] = pd.to_datetime(obs_sorted["ts_utc"], utc=True, errors="coerce")
     obs_sorted = obs_sorted.dropna(subset=["ts_utc"]).sort_values(["ts_utc", "pin id"]).reset_index(drop=True)
 
     out = pd.merge_asof(
@@ -116,7 +117,7 @@ truck_stop_df, traffic_df = model_stop_func()
 truck_stop_df = truck_stop_df[
     [
         "pin id", "pinname", "link_id", "lat", "lng",
-        "truckParkingSpotCount", "amenities_score", "f_system"
+        "truckParkingSpotCount", "amenities_score", "f_system", "route_num"
     ]
 ].copy()
 
@@ -325,6 +326,9 @@ truck_stop_df["parking_available_pred"] = (
 ).astype(int)
 
 truck_stop_df["p_available"] = 1 - truck_stop_df["p_full"]
+
+truck_stop_df["min_dist"] = truck_stop_df["truck_stop_mi"].min()
+truck_stop_df["extra_dist"] = truck_stop_df["truck_stop_mi"] - truck_stop_df["min_dist"]
 
 truck_stop_df.to_csv("1_with_parking_predictions.csv", index=False)
 
