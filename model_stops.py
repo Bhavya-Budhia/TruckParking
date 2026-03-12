@@ -70,7 +70,7 @@ def model_stop_func():
          "overnightParking"]].copy()
 
     # Getting the truck ids name
-    stop_name_df = park_data[["pinname", "pin id"]].drop_duplicates()
+    stop_name_df = park_data[["pinname", "pin id", "route_num"]].drop_duplicates()
     # stop_name_df
 
     print(nearest.shape)
@@ -81,7 +81,8 @@ def model_stop_func():
         "str") + "_" + \
                              stop_tab_df["endpoint"].astype("str")
     stop_tab_df = stop_tab_df[
-        ["pin id", "pinname", "lat", "lng", "truckParkingSpotCount", "f_system", "link_id", "overnightParking"]].copy()
+        ["pin id", "pinname", "lat", "lng", "truckParkingSpotCount", "f_system", "link_id", "overnightParking",
+         "route_num"]].copy()
     stop_tab_df["review_score"] = ""
     # stop_tab_df
 
@@ -193,7 +194,7 @@ def model_stop_func():
         print(unique_id[unique_id["pin id"].isin(a[a["ucount2"] > 1]["pin id"].unique())].shape)
 
     columns = ['pin id', 'pinname', 'lat', 'lng', 'truckParkingSpotCount', 'f_system',
-               'link_id', 'review_score', 'amenities_score', "overnightParking"]
+               'link_id', 'review_score', 'amenities_score', "overnightParking", "route_num"]
 
     df_amenities = df_amenities[
         ['state', 'petFriendly', 'atmCount', 'transfloExpress', 'showerCount', 'rvDumpStations', 'wifi', 'tireCare',
@@ -237,4 +238,4 @@ def model_stop_func():
 
     return stop_tab_df[columns], df_ex
 
-# model_stop()
+# model_stop_func()
