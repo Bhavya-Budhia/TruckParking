@@ -154,7 +154,7 @@ def build_map(df):
         """
         folium.CircleMarker(
             location=[row["lat"], row["lng"]],
-            radius=6,
+            radius=3,
             color="black",
             fill=True,
             fill_color="black",
