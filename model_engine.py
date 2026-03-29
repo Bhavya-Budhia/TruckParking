@@ -13,7 +13,15 @@ path = r"C:\Users\bhavy\Massachusetts Institute of Technology\Truck Parking Caps
 # path = r"C:\Users\samcl\Massachusetts Institute of Technology\Truck Parking Capstone - Truck Stop Finder 🚚⛽\\"
 
 
-def model_engine_func():
+def model_engine_func(
+        driver_lat=25.7752,
+        driver_lon=-80.2086,
+        dest_lat=33.76052,
+        dest_lon=-78.91463,
+        hos_left_hr=5.0,
+        freeflow_mph=55.0,
+        start_time="2023-12-02 12:20:00"
+):
     # Sourced directly from TruckerPath
     cong_4_df = pd.read_csv(
         path + r"5. Source & Refrence Files\Congestion_speed_r_4.csv")
@@ -134,18 +142,15 @@ def model_engine_func():
         3: 65
     }
 
-    truck_stop_df["driver_lat"] = 25.7752
-    truck_stop_df["driver_lon"] = -80.2086
-    truck_stop_df["start_time"] = pd.Timestamp("2023-12-02 12:20:00", tz="UTC")
-    truck_stop_df["dest_lat"] = 33.76052
-    truck_stop_df["dest_lon"] = -78.91463
-    truck_stop_df["HOS_left_hr"] = 5
+    truck_stop_df["driver_lat"] = float(driver_lat)
+    truck_stop_df["driver_lon"] = float(driver_lon)
+    truck_stop_df["start_time"] = pd.Timestamp(start_time, tz="UTC")
+    truck_stop_df["dest_lat"] = float(dest_lat)
+    truck_stop_df["dest_lon"] = float(dest_lon)
+    truck_stop_df["HOS_left_hr"] = float(hos_left_hr)
 
-    # Either use mapped speed:
-    # truck_stop_df["freeflow_mph"] = truck_stop_df["f_system"].map(freeflow_mph_dict)
-
-    # Or fixed speed:
-    truck_stop_df["freeflow_mph"] = 55
+    # fixed speed input from UI
+    truck_stop_df["freeflow_mph"] = float(freeflow_mph)
 
     # ---------------------------------------------------
     # 1. Driver -> Stop path output
