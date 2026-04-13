@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from scgraph.geographs.us_freeway import us_freeway_geograph
 
-from model_stops import model_stop_func
+# from model_stops import model_stop_func
 
 path = r"C:\Users\bhavy\Massachusetts Institute of Technology\Truck Parking Capstone - General\Truck Stop Finder 🚚⛽\\"
 # path = r"C:\Users\samcl\Massachusetts Institute of Technology\Truck Parking Capstone - Truck Stop Finder 🚚⛽\\"
@@ -127,7 +127,9 @@ def model_engine_func(
 
         return pd.Series([bearing, direction])
 
-    truck_stop_df, traffic_df = model_stop_func()
+    truck_stop_df = pd.read_csv("stop_tab.csv")
+    traffic_df = pd.read_csv("df_ex.csv")
+    # truck_stop_df, traffic_df = model_stop_func()
 
     truck_stop_df = truck_stop_df[
         [
@@ -276,7 +278,7 @@ def model_engine_func(
     truck_stop_df["traffic_factor"] = 1 - (truck_stop_df["traffic"] / p90) * 0.5
     truck_stop_df["traffic_factor"] = truck_stop_df["traffic_factor"].clip(lower=0.3, upper=1.0)
 
-    truck_stop_df["adj_speed_mph"] = truck_stop_df["freeflow_mph"] * truck_stop_df["traffic_factor"]
+    truck_stop_df["adj_speed_mph"] = truck_stop_df["freeflow_mph"] * 1  # truck_stop_df["traffic_factor"]
 
     truck_stop_df["ETA_stop_adj"] = truck_stop_df["start_time"] + pd.to_timedelta(
         truck_stop_df["truck_stop_mi"] / truck_stop_df["adj_speed_mph"],
@@ -375,6 +377,9 @@ def model_engine_func(
 
         return out.fillna(0.5)
 
+    truck_stop_df["stop_dest_norm"] = (
+            truck_stop_df["stop_dest_mi"] / truck_stop_df["stop_dest_mi"].max()
+    )
     truck_stop_df["score_parking"] = truck_stop_df["p_available"].fillna(0.5)
     truck_stop_df["score_amenities"] = minmax_score(truck_stop_df["amenities_score"])
     truck_stop_df["score_capacity"] = minmax_score(truck_stop_df["truckParkingSpotCount"])
@@ -382,11 +387,12 @@ def model_engine_func(
     truck_stop_df["score_traffic"] = minmax_score(truck_stop_df["traffic"], reverse=True)
 
     truck_stop_df["utility_score"] = (
-            0.55 * truck_stop_df["score_parking"] +
-            0.15 * truck_stop_df["score_amenities"] +
-            0.10 * truck_stop_df["score_capacity"] +
-            0.12 * truck_stop_df["score_detour"] +
-            0.08 * truck_stop_df["score_traffic"]
+            0.3 * truck_stop_df["score_parking"] +
+            0.3 * truck_stop_df["score_amenities"] +
+            0.3 * truck_stop_df["score_capacity"] +
+            0.3 * truck_stop_df["score_detour"] +
+            0.3 * truck_stop_df["score_traffic"] +
+            0.3 * truck_stop_df["stop_dest_norm"]
     )
 
     truck_stop_df["utility_score"] = np.where(

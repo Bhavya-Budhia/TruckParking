@@ -236,6 +236,8 @@ def model_stop_func():
 
     stop_tab_df['overnightParking'] = stop_tab_df['overnightParking'].fillna(False)
 
+    stop_tab_df[columns].to_csv("stop_tab.csv", index=False)
+    df_ex.to_csv("df_ex.csv", index=False)
     return stop_tab_df[columns], df_ex
 
 # model_stop_func()
