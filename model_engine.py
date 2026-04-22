@@ -23,12 +23,9 @@ def model_engine_func(
         start_time="2023-12-02 12:20:00"
 ):
     # Sourced directly from TruckerPath
-    cong_4_df = pd.read_csv(
-        path + r"5. Source & Refrence Files\Congestion_speed_r_4.csv")
-    cong_3_df = pd.read_csv(
-        path + r"5. Source & Refrence Files\Congestion_speed_r_3.csv")
-    cong_2_df = pd.read_csv(
-        path + r"5. Source & Refrence Files\Congestion_speed_r_2.csv")
+    cong_4_df = pd.read_csv("Congestion_speed_r_4.csv")
+    cong_3_df = pd.read_csv("Congestion_speed_r_3.csv")
+    cong_2_df = pd.read_csv("Congestion_speed_r_2.csv")
 
     W_review = 0.5
     W_amenities = 0.2
