@@ -24,9 +24,9 @@ DEFAULT_UTILITY_WEIGHTS: Dict[str, float] = {
 @lru_cache(maxsize=1)
 def load_reference_data():
     """Load stable reference files once per Python process."""
-    cong_4_df = pd.read_csv(path + r"5. Source & Refrence Files\Congestion_speed_r_4.csv")
-    cong_3_df = pd.read_csv(path + r"5. Source & Refrence Files\Congestion_speed_r_3.csv")
-    cong_2_df = pd.read_csv(path + r"5. Source & Refrence Files\Congestion_speed_r_2.csv")
+    cong_4_df = pd.read_csv("Congestion_speed_r_4.csv")
+    cong_3_df = pd.read_csv("Congestion_speed_r_3.csv")
+    cong_2_df = pd.read_csv("Congestion_speed_r_2.csv")
 
     truck_stop_df = pd.read_csv("stop_tab.csv")
     truck_stop_df = truck_stop_df[
