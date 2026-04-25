@@ -464,24 +464,59 @@ def show_simulation_results_page():
 
 
 st.title("Truck Stop Finder")
-st.write("Single-run ranking, simulation setup, and filtered simulation results in one app.")
+st.write("Single-run ranking, simulation setup, filtered simulation results, and HOS frontier analysis in one app.")
 
-page = st.sidebar.radio("Page", ["Single Run", "Simulation Setup", "Simulation Results", "HOS Frontier"], index=0)
+st.markdown("""
+<style>
+button[data-baseweb="tab"] {
+    padding: 12px 22px;
+    font-size: 16px;
+    font-weight: 600;
+    border-radius: 999px 999px 0 0;
+}
+button[data-baseweb="tab"][aria-selected="true"] {
+    border-bottom: 4px solid #1f77b4;
+    color: #1f77b4;
+    font-weight: 800;
+}
+div[data-baseweb="tab-list"] {
+    gap: 8px;
+}
+</style>
+""", unsafe_allow_html=True)
 
-st.sidebar.markdown("---")
+# --------------------------------------------------
+# Global sidebar inputs shared by all tabs
+# --------------------------------------------------
+st.sidebar.markdown("### Route Inputs")
 driver_lat = st.sidebar.number_input("Driver Latitude", value=25.7752, format="%.6f")
 driver_lon = st.sidebar.number_input("Driver Longitude", value=-80.2086, format="%.6f")
 dest_lat = st.sidebar.number_input("Destination Latitude", value=33.76052, format="%.6f")
 dest_lon = st.sidebar.number_input("Destination Longitude", value=-78.91463, format="%.6f")
 freeflow_mph = st.sidebar.number_input("Freeflow Speed (mph)", value=55.0, min_value=1.0, step=1.0)
 
-if page == "Single Run":
-    hos_left_hr = st.sidebar.number_input("HOS Left (hours)", value=5.0, min_value=0.0, step=0.5)
-    start_time = st.sidebar.text_input("Start Time (UTC)", value="2023-12-02 12:20:00")
-    run_button = st.sidebar.button("Run Single Scenario")
+tabs = st.tabs([
+    "🚚 Single Run",
+    "⚙️ Simulation Setup",
+    "📊 Simulation Results",
+    "🧭 HOS Frontier",
+])
 
+# --------------------------------------------------
+# Tab 1: Single Run
+# --------------------------------------------------
+with tabs[0]:
     st.subheader("Single Run")
     st.caption("This is your original workflow, using normalized utility weights under the hood.")
+
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c1:
+        hos_left_hr = st.number_input("HOS Left (hours)", value=5.0, min_value=0.0, step=0.5, key="single_hos")
+    with c2:
+        start_time = st.text_input("Start Time (UTC)", value="2023-12-02 12:20:00", key="single_start_time")
+    with c3:
+        st.markdown("<br>", unsafe_allow_html=True)
+        run_button = st.button("Run Single Scenario", key="run_single_button", use_container_width=True)
 
     if run_button:
         with st.spinner("Running single scenario..."):
@@ -493,26 +528,37 @@ if page == "Single Run":
             st.dataframe(df[show_cols].head(20), use_container_width=True)
             html(build_single_run_map(df)._repr_html_(), height=700, scrolling=True)
 
-elif page == "Simulation Setup":
-    num_runs = st.sidebar.number_input("Number of route variations", value=20, min_value=1, max_value=250, step=1)
-    base_date = st.sidebar.text_input("Simulation Date", value="2023-12-02")
-    base_amenity_weight = st.sidebar.slider("Base Amenity Weight", min_value=0.05, max_value=0.60, value=0.20,
-                                            step=0.01)
-    location_jitter_deg = st.sidebar.slider("Location Shift (+/- degrees)", min_value=0.01, max_value=1.00, value=0.20,
-                                            step=0.01)
-    amenity_jitter = st.sidebar.slider("Amenity Weight Shift (+/-)", min_value=0.0, max_value=0.30, value=0.10,
-                                       step=0.01)
-    seed = st.sidebar.number_input("Random Seed", value=42, min_value=0, step=1)
-    sim_button = st.sidebar.button("Run Simulation")
-
+# --------------------------------------------------
+# Tab 2: Simulation Setup
+# --------------------------------------------------
+with tabs[1]:
     st.subheader("Simulation Setup")
     st.caption(
-        "For each route variation, the app now runs all HOS scenarios from 1 to 6 hours, and for each HOS it evaluates morning, afternoon, and evening."
+        "For each route variation, the app runs all HOS scenarios from 1 to 6 hours, "
+        "and for each HOS it evaluates morning, afternoon, and evening."
     )
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        num_runs = st.number_input("Number of route variations", value=20, min_value=1, max_value=250, step=1,
+                                   key="sim_num_runs")
+        base_date = st.text_input("Simulation Date", value="2023-12-02", key="sim_base_date")
+    with c2:
+        base_amenity_weight = st.slider("Base Amenity Weight", min_value=0.05, max_value=0.60, value=0.20,
+                                        step=0.01, key="sim_base_amenity_weight")
+        amenity_jitter = st.slider("Amenity Weight Shift (+/-)", min_value=0.0, max_value=0.30, value=0.10,
+                                   step=0.01, key="sim_amenity_jitter")
+    with c3:
+        location_jitter_deg = st.slider("Location Shift (+/- degrees)", min_value=0.01, max_value=1.00, value=0.20,
+                                        step=0.01, key="sim_location_jitter")
+        seed = st.number_input("Random Seed", value=42, min_value=0, step=1, key="sim_seed")
+
     st.write(
         f"Each run creates {len(HOS_HOURS) * 3} scenarios: 6 HOS values × 3 time windows. "
         f"So with {int(num_runs)} route variations, you will get {int(num_runs) * len(HOS_HOURS) * 3} total scenarios."
     )
+
+    sim_button = st.button("Run Simulation", key="run_sim_button", use_container_width=True)
 
     if sim_button:
         with st.spinner("Running simulation across route, HOS, and time scenarios..."):
@@ -532,7 +578,7 @@ elif page == "Simulation Setup":
             st.session_state["simulation_summary_df"] = summary_df
             st.session_state["simulation_scenario_df"] = scenario_df
 
-            st.success("Simulation finished. Open the Simulation Results page to explore HOS-specific outputs.")
+            st.success("Simulation finished. Open the Simulation Results or HOS Frontier tab to explore outputs.")
 
             preview_cols = [
                 "simulation_rank", "pinname", "combined_utility", "feasible_rate", "top_10_rate",
@@ -542,8 +588,14 @@ elif page == "Simulation Setup":
             st.dataframe(summary_df[preview_cols].head(20), use_container_width=True)
             html(build_simulation_map(summary_df, scenario_df)._repr_html_(), height=700, scrolling=True)
 
-elif page == "Simulation Results":
+# --------------------------------------------------
+# Tab 3: Simulation Results
+# --------------------------------------------------
+with tabs[2]:
     show_simulation_results_page()
 
-else:
+# --------------------------------------------------
+# Tab 4: HOS Frontier
+# --------------------------------------------------
+with tabs[3]:
     show_hos_frontier_page()
