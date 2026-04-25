@@ -141,7 +141,7 @@ def get_relevant_simulation_stops(summary_df: pd.DataFrame) -> pd.DataFrame:
     relevant_df = summary_df[
         (summary_df["feasible_rate"] > 0)
         & (summary_df["combined_utility"] > 0)
-        ].copy()
+    ].copy()
 
     relevant_df = relevant_df.sort_values(
         ["combined_utility", "feasible_rate", "avg_p_available"],
@@ -232,6 +232,176 @@ def build_simulation_map(summary_df: pd.DataFrame, scenario_df: pd.DataFrame, ti
     m.get_root().html.add_child(Element(legend_html))
     return m
 
+
+FRONTIER_COLORS = {
+    1: "#8e44ad",
+    2: "#2980b9",
+    3: "#16a085",
+    4: "#f39c12",
+    5: "#d35400",
+    6: "#c0392b",
+}
+
+
+def build_hos_frontier_summary(scenario_df: pd.DataFrame) -> pd.DataFrame:
+    """Summarize stop color counts and reachable distance for each HOS hour."""
+    rows = []
+
+    for hos_hour in HOS_HOURS:
+        hos_df = scenario_df[scenario_df["hos_hour"] == int(hos_hour)].copy()
+        if hos_df.empty:
+            rows.append({
+                "hos_hour": int(hos_hour),
+                "frontier_distance_mi": 0.0,
+                "green_stops": 0,
+                "yellow_stops": 0,
+                "red_stops": 0,
+                "total_relevant_stops": 0,
+            })
+            continue
+
+        hos_summary = aggregate_simulation_results(hos_df)
+        relevant_hos_summary = add_utility_buckets(get_relevant_simulation_stops(hos_summary))
+
+        bucket_counts = relevant_hos_summary[
+            "combined_bucket"].value_counts() if not relevant_hos_summary.empty else pd.Series(dtype=int)
+
+        if "adj_speed_mph" in hos_df.columns:
+            frontier_distance_mi = float((hos_df["sim_hos_left_hr"] * hos_df["adj_speed_mph"]).mean())
+        else:
+            frontier_distance_mi = float(hos_hour) * float(freeflow_mph)
+
+        rows.append({
+            "hos_hour": int(hos_hour),
+            "frontier_distance_mi": frontier_distance_mi,
+            "green_stops": int(bucket_counts.get("high", 0)),
+            "yellow_stops": int(bucket_counts.get("mid", 0)),
+            "red_stops": int(bucket_counts.get("low", 0)),
+            "total_relevant_stops": int(len(relevant_hos_summary)),
+        })
+
+    return pd.DataFrame(rows)
+
+
+def build_hos_frontier_map(scenario_df: pd.DataFrame, frontier_summary: pd.DataFrame):
+    if scenario_df.empty:
+        return folium.Map(location=[39.5, -98.35], zoom_start=4, tiles="CartoDB Positron")
+
+    source_lat = scenario_df["sim_driver_lat"].mean()
+    source_lon = scenario_df["sim_driver_lon"].mean()
+    dest_lat = scenario_df["sim_dest_lat"].mean()
+    dest_lon = scenario_df["sim_dest_lon"].mean()
+
+    center_lat = (source_lat + dest_lat) / 2
+    center_lon = (source_lon + dest_lon) / 2
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles="CartoDB Positron")
+
+    folium.CircleMarker(
+        [source_lat, source_lon], radius=8, color="blue", fill=True, fill_color="blue",
+        popup="Average Source"
+    ).add_to(m)
+    folium.CircleMarker(
+        [dest_lat, dest_lon], radius=8, color="blue", fill=True, fill_color="blue",
+        popup="Average Destination"
+    ).add_to(m)
+
+    # Draw frontier rings first so the stop markers sit on top.
+    for _, row in frontier_summary.iterrows():
+        hos_hour = int(row["hos_hour"])
+        color = FRONTIER_COLORS.get(hos_hour, "gray")
+        radius_m = float(row["frontier_distance_mi"]) * 1609.344
+        folium.Circle(
+            location=[source_lat, source_lon],
+            radius=radius_m,
+            color=color,
+            fill=False,
+            weight=3,
+            opacity=0.70,
+            popup=f"HOS {hos_hour}: {row['frontier_distance_mi']:.1f} miles"
+        ).add_to(m)
+
+    # Show each relevant stop once, colored using its overall simulation bucket.
+    overall_summary = add_utility_buckets(get_relevant_simulation_stops(aggregate_simulation_results(scenario_df)))
+
+    def get_color(bucket):
+        if bucket == "high":
+            return "green"
+        if bucket == "mid":
+            return "yellow"
+        return "red"
+
+    for _, row in overall_summary.iterrows():
+        color = get_color(row["combined_bucket"])
+        popup = f"""
+        <b>{row['pinname']}</b><br>
+        Simulation Rank: {row['simulation_rank']}<br>
+        Combined Utility: {row['combined_utility']:.4f}<br>
+        Feasible Rate: {row['feasible_rate']:.2%}<br>
+        Avg p_available: {row['avg_p_available']:.4f}<br>
+        Avg Truck Stop Miles: {row['avg_truck_stop_mi']:.2f}
+        """
+        folium.CircleMarker(
+            [row["lat"], row["lng"]], radius=6, color=color, fill=True,
+            fill_color=color, fill_opacity=0.9,
+            popup=folium.Popup(popup, max_width=320), tooltip=row["pinname"],
+        ).add_to(m)
+
+    bounds_points = [[source_lat, source_lon], [dest_lat, dest_lon]]
+    if not overall_summary.empty:
+        bounds_points += overall_summary[["lat", "lng"]].values.tolist()
+    m.fit_bounds(bounds_points)
+
+    frontier_items = "".join(
+        f'<span style="color: {FRONTIER_COLORS.get(int(row["hos_hour"]), "gray")};">●</span> HOS {int(row["hos_hour"])} frontier: {row["frontier_distance_mi"]:.1f} mi<br>'
+        for _, row in frontier_summary.iterrows()
+    )
+    legend_html = f"""
+    <div style="position: fixed; bottom: 40px; left: 40px; width: 310px; z-index: 9999;
+        background-color: white; border: 2px solid grey; border-radius: 8px; padding: 12px; font-size: 14px;">
+        <b>HOS Frontier Legend</b><br><br>
+        <span style="color: blue;">●</span> Average source / destination<br>
+        <span style="color: green;">●</span> High relevant stop<br>
+        <span style="color: yellow;">●</span> Mid relevant stop<br>
+        <span style="color: red;">●</span> Low relevant stop<br><br>
+        {frontier_items}
+    </div>
+    """
+    m.get_root().html.add_child(Element(legend_html))
+    return m
+
+
+def show_hos_frontier_page():
+    st.subheader("HOS Frontier Movement")
+
+    scenario_df = st.session_state.get("simulation_scenario_df")
+    if scenario_df is None or scenario_df.empty:
+        st.info("Run the simulation first from the Simulation Setup page. Then the HOS frontier will appear here.")
+        return
+
+    st.caption(
+        "Each ring shows the average distance reachable from the average simulated driver origin for that HOS hour. "
+        "The stop colors use the same relevant-stop red/yellow/green buckets used in Simulation Results."
+    )
+
+    frontier_summary = build_hos_frontier_summary(scenario_df)
+
+    st.markdown("### Frontier map")
+    html(build_hos_frontier_map(scenario_df, frontier_summary)._repr_html_(), height=750, scrolling=True)
+
+    st.markdown("### Relevant stop counts by HOS")
+    display_df = frontier_summary[[
+        "hos_hour", "frontier_distance_mi", "green_stops", "yellow_stops", "red_stops", "total_relevant_stops"
+    ]].copy()
+    display_df.rename(columns={
+        "hos_hour": "HOS Hour",
+        "frontier_distance_mi": "Reachable Distance (mi)",
+        "green_stops": "Green Stops",
+        "yellow_stops": "Yellow Stops",
+        "red_stops": "Red Stops",
+        "total_relevant_stops": "Total Relevant Stops",
+    }, inplace=True)
+    st.dataframe(display_df, use_container_width=True)
+
 def show_simulation_results_page():
     st.subheader("Simulation Results")
 
@@ -296,7 +466,7 @@ def show_simulation_results_page():
 st.title("Truck Stop Finder")
 st.write("Single-run ranking, simulation setup, and filtered simulation results in one app.")
 
-page = st.sidebar.radio("Page", ["Single Run", "Simulation Setup", "Simulation Results"], index=0)
+page = st.sidebar.radio("Page", ["Single Run", "Simulation Setup", "Simulation Results", "HOS Frontier"], index=0)
 
 st.sidebar.markdown("---")
 driver_lat = st.sidebar.number_input("Driver Latitude", value=25.7752, format="%.6f")
@@ -372,5 +542,8 @@ elif page == "Simulation Setup":
             st.dataframe(summary_df[preview_cols].head(20), use_container_width=True)
             html(build_simulation_map(summary_df, scenario_df)._repr_html_(), height=700, scrolling=True)
 
-else:
+elif page == "Simulation Results":
     show_simulation_results_page()
+
+else:
+    show_hos_frontier_page()
