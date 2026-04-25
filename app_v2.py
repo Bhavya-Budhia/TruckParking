@@ -133,6 +133,44 @@ def build_single_run_map(df: pd.DataFrame):
     return m
 
 
+def get_relevant_simulation_stops(summary_df: pd.DataFrame) -> pd.DataFrame:
+    """Keep only stops that are feasible in at least one included scenario."""
+    if summary_df.empty:
+        return summary_df.copy()
+
+    relevant_df = summary_df[
+        (summary_df["feasible_rate"] > 0)
+        & (summary_df["combined_utility"] > 0)
+        ].copy()
+
+    relevant_df = relevant_df.sort_values(
+        ["combined_utility", "feasible_rate", "avg_p_available"],
+        ascending=False,
+    ).reset_index(drop=True)
+    relevant_df["simulation_rank"] = range(1, len(relevant_df) + 1)
+    return relevant_df
+
+
+def add_utility_buckets(df: pd.DataFrame, score_col: str = "combined_utility") -> pd.DataFrame:
+    """Create red/yellow/green buckets only for the relevant stops shown."""
+    out = df.copy()
+    n = len(out)
+
+    if n == 0:
+        out["combined_bucket"] = pd.Series(dtype="object")
+    elif n == 1:
+        out["combined_bucket"] = "high"
+    elif n == 2:
+        out["combined_bucket"] = ["high", "low"]
+    else:
+        out["combined_bucket"] = pd.qcut(
+            out[score_col].rank(method="first"),
+            q=3,
+            labels=["low", "mid", "high"],
+        )
+    return out
+
+
 def build_simulation_map(summary_df: pd.DataFrame, scenario_df: pd.DataFrame, title_prefix: str = ""):
     if summary_df.empty or scenario_df.empty:
         return folium.Map(location=[39.5, -98.35], zoom_start=4, tiles="CartoDB Positron")
@@ -151,13 +189,7 @@ def build_simulation_map(summary_df: pd.DataFrame, scenario_df: pd.DataFrame, ti
     folium.CircleMarker([dest_lat, dest_lon], radius=8, color="blue", fill=True, fill_color="blue",
                         popup=f"{title_prefix}Destination Avg").add_to(m)
 
-    top_df = summary_df.head(50).copy()
-    if len(top_df) > 0:
-        top_df["combined_bucket"] = pd.qcut(
-            top_df["combined_utility"].rank(method="first"), q=3, labels=["low", "mid", "high"]
-        )
-    else:
-        top_df["combined_bucket"] = pd.Series(dtype="object")
+    map_df = add_utility_buckets(get_relevant_simulation_stops(summary_df))
 
     def get_color(bucket):
         if bucket == "high":
@@ -166,7 +198,7 @@ def build_simulation_map(summary_df: pd.DataFrame, scenario_df: pd.DataFrame, ti
             return "yellow"
         return "red"
 
-    for _, row in top_df.iterrows():
+    for _, row in map_df.iterrows():
         popup = f"""
         <b>{row['pinname']}</b><br>
         Simulation Rank: {row['simulation_rank']}<br>
@@ -183,7 +215,7 @@ def build_simulation_map(summary_df: pd.DataFrame, scenario_df: pd.DataFrame, ti
             popup=folium.Popup(popup, max_width=320), tooltip=row["pinname"],
         ).add_to(m)
 
-    bounds_points = [[source_lat, source_lon], [dest_lat, dest_lon]] + top_df[["lat", "lng"]].values.tolist()
+    bounds_points = [[source_lat, source_lon], [dest_lat, dest_lon]] + map_df[["lat", "lng"]].values.tolist()
     if len(bounds_points) >= 2:
         m.fit_bounds(bounds_points)
 
@@ -192,14 +224,13 @@ def build_simulation_map(summary_df: pd.DataFrame, scenario_df: pd.DataFrame, ti
         background-color: white; border: 2px solid grey; border-radius: 8px; padding: 12px; font-size: 14px;">
         <b>Legend</b><br><br>
         <span style="color: blue;">●</span> Average source / destination<br>
-        <span style="color: green;">●</span> High combined utility<br>
-        <span style="color: yellow;">●</span> Mid combined utility<br>
-        <span style="color: red;">●</span> Low combined utility
+        <span style="color: green;">●</span> High relevant feasible stop<br>
+        <span style="color: yellow;">●</span> Mid relevant feasible stop<br>
+        <span style="color: red;">●</span> Low relevant feasible stop
     </div>
     """
     m.get_root().html.add_child(Element(legend_html))
     return m
-
 
 def show_simulation_results_page():
     st.subheader("Simulation Results")
@@ -211,13 +242,11 @@ def show_simulation_results_page():
         st.info("Run the simulation first from the Simulation Setup page. Then the filtered results will appear here.")
         return
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
         hos_filter = st.selectbox("Filter by HOS hour", options=["All"] + HOS_HOURS, index=0)
     with col2:
         time_filter = st.selectbox("Filter by time window", options=["All", "morning", "afternoon", "evening"], index=0)
-    with col3:
-        top_n = st.slider("Rows to show", min_value=10, max_value=100, value=25, step=5)
 
     filtered_df = scenario_df.copy()
     if hos_filter != "All":
@@ -226,37 +255,42 @@ def show_simulation_results_page():
         filtered_df = filtered_df[filtered_df["time_window"] == time_filter].copy()
 
     filtered_summary = aggregate_simulation_results(filtered_df)
+    relevant_summary = get_relevant_simulation_stops(filtered_summary)
+    feasible_scenario_df = filtered_df[
+        filtered_df["feasible_stop"] == 1].copy() if not filtered_df.empty else filtered_df
 
     metric_cols = st.columns(4)
     metric_cols[0].metric("Scenario rows", f"{len(filtered_df):,}")
-    metric_cols[1].metric("Unique stops", f"{filtered_df['pin id'].nunique():,}" if not filtered_df.empty else "0")
+    metric_cols[1].metric("Relevant feasible stops", f"{len(relevant_summary):,}")
     metric_cols[2].metric("Runs included", f"{filtered_df['run_id'].nunique():,}" if not filtered_df.empty else "0")
     metric_cols[3].metric("Top stop utility",
-                          f"{filtered_summary['combined_utility'].iloc[0]:.3f}" if not filtered_summary.empty else "NA")
+                          f"{relevant_summary['combined_utility'].iloc[0]:.3f}" if not relevant_summary.empty else "NA")
 
     st.markdown("### Filtered stop summary")
     summary_cols = [
         "simulation_rank", "pinname", "combined_utility", "feasible_rate", "top_10_rate",
         "avg_p_available", "avg_detour_mi", "avg_truck_stop_mi", "avg_stop_dest_mi", "scenario_count"
     ]
-    if not filtered_summary.empty:
-        st.dataframe(filtered_summary[summary_cols].head(top_n), use_container_width=True)
+    if not relevant_summary.empty:
+        st.dataframe(relevant_summary[summary_cols], use_container_width=True)
     else:
-        st.warning("No rows for the current filter.")
+        st.warning("No feasible/relevant stops for the current filter.")
 
     st.markdown("### Filtered map")
-    html(build_simulation_map(filtered_summary, filtered_df, title_prefix="Filtered ")._repr_html_(), height=700,
+    html(build_simulation_map(relevant_summary, filtered_df, title_prefix="Filtered ")._repr_html_(), height=700,
          scrolling=True)
 
-    st.markdown("### Scenario-level results")
+    st.markdown("### Scenario-level feasible results")
     scenario_cols = [
         "scenario_id", "run_id", "hos_hour", "time_window", "utility_rank", "pinname",
         "feasible_stop", "utility_score", "p_available", "detour_mi",
         "sim_hos_left_hr", "sim_amenity_weight"
     ]
-    scenario_cols = [c for c in scenario_cols if c in filtered_df.columns]
-    if not filtered_df.empty:
-        st.dataframe(filtered_df[scenario_cols].head(top_n * 10), use_container_width=True)
+    scenario_cols = [c for c in scenario_cols if c in feasible_scenario_df.columns]
+    if not feasible_scenario_df.empty:
+        st.dataframe(feasible_scenario_df[scenario_cols], use_container_width=True)
+    else:
+        st.warning("No feasible scenario-level rows for the current filter.")
 
 
 st.title("Truck Stop Finder")
