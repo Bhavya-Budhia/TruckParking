@@ -1,3 +1,4 @@
+import altair as alt
 import folium
 import pandas as pd
 import streamlit as st
@@ -401,6 +402,42 @@ def show_hos_frontier_page():
         "total_relevant_stops": "Total Relevant Stops",
     }, inplace=True)
     st.dataframe(display_df, use_container_width=True)
+
+    st.markdown("### Stop count trend by HOS")
+    chart_df = frontier_summary[["hos_hour", "green_stops", "yellow_stops", "red_stops"]].copy()
+    chart_df.rename(columns={
+        "hos_hour": "HOS Hour",
+        "green_stops": "Green",
+        "yellow_stops": "Yellow",
+        "red_stops": "Red",
+    }, inplace=True)
+
+    chart_long = chart_df.melt(
+        id_vars="HOS Hour",
+        value_vars=["Green", "Yellow", "Red"],
+        var_name="Stop Category",
+        value_name="Stop Count",
+    )
+
+    trend_chart = (
+        alt.Chart(chart_long)
+        .mark_line(point=True, strokeWidth=3)
+        .encode(
+            x=alt.X("HOS Hour:O", title="HOS Hour"),
+            y=alt.Y("Stop Count:Q", title="Number of Relevant Stops"),
+            color=alt.Color(
+                "Stop Category:N",
+                scale=alt.Scale(
+                    domain=["Green", "Yellow", "Red"],
+                    range=["green", "gold", "red"],
+                ),
+                title="Stop Category",
+            ),
+            tooltip=["HOS Hour:O", "Stop Category:N", "Stop Count:Q"],
+        )
+        .properties(height=360)
+    )
+    st.altair_chart(trend_chart, use_container_width=True)
 
 def show_simulation_results_page():
     st.subheader("Simulation Results")
