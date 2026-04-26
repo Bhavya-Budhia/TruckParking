@@ -1,5 +1,6 @@
 import altair as alt
 import folium
+import numpy as np
 import pandas as pd
 import streamlit as st
 from folium import Element
@@ -244,8 +245,31 @@ FRONTIER_COLORS = {
 }
 
 
+def weighted_average_distance(distance_series: pd.Series, weight_series: pd.Series) -> float:
+    """Return a utility-weighted average distance, with safe fallbacks."""
+    distances = pd.to_numeric(distance_series, errors="coerce")
+    weights = pd.to_numeric(weight_series, errors="coerce").fillna(0)
+
+    valid = distances.notna()
+    distances = distances[valid]
+    weights = weights[valid]
+
+    if len(distances) == 0:
+        return 0.0
+
+    if weights.sum() <= 0:
+        return float(distances.mean())
+
+    return float(np.average(distances, weights=weights))
+
+
 def build_hos_frontier_summary(scenario_df: pd.DataFrame) -> pd.DataFrame:
-    """Summarize stop color counts and reachable distance for each HOS hour."""
+    """Summarize stop color counts and a data-driven frontier distance for each HOS hour.
+
+    The frontier distance is based on the average distance of relevant stops available to the
+    driver under each HOS scenario, weighted by combined utility and feasible rate. This makes
+    the circle describe the reachable stop frontier rather than only speed × HOS.
+    """
     rows = []
 
     for hos_hour in HOS_HOURS:
@@ -253,6 +277,7 @@ def build_hos_frontier_summary(scenario_df: pd.DataFrame) -> pd.DataFrame:
         if hos_df.empty:
             rows.append({
                 "hos_hour": int(hos_hour),
+                "raw_frontier_distance_mi": 0.0,
                 "frontier_distance_mi": 0.0,
                 "green_stops": 0,
                 "yellow_stops": 0,
@@ -267,21 +292,36 @@ def build_hos_frontier_summary(scenario_df: pd.DataFrame) -> pd.DataFrame:
         bucket_counts = relevant_hos_summary[
             "combined_bucket"].value_counts() if not relevant_hos_summary.empty else pd.Series(dtype=int)
 
-        if "adj_speed_mph" in hos_df.columns:
-            frontier_distance_mi = float((hos_df["sim_hos_left_hr"] * hos_df["adj_speed_mph"]).mean())
+        if not relevant_hos_summary.empty:
+            distance_weights = (
+                    relevant_hos_summary["combined_utility"].fillna(0)
+                    * relevant_hos_summary["feasible_rate"].fillna(0)
+            )
+            raw_frontier_distance_mi = weighted_average_distance(
+                relevant_hos_summary["avg_truck_stop_mi"],
+                distance_weights,
+            )
+        elif "adj_speed_mph" in hos_df.columns:
+            raw_frontier_distance_mi = float((hos_df["sim_hos_left_hr"] * hos_df["adj_speed_mph"]).mean())
         else:
-            frontier_distance_mi = float(hos_hour) * float(freeflow_mph)
+            raw_frontier_distance_mi = float(hos_hour) * float(freeflow_mph)
 
         rows.append({
             "hos_hour": int(hos_hour),
-            "frontier_distance_mi": frontier_distance_mi,
+            "raw_frontier_distance_mi": raw_frontier_distance_mi,
+            "frontier_distance_mi": raw_frontier_distance_mi,
             "green_stops": int(bucket_counts.get("high", 0)),
             "yellow_stops": int(bucket_counts.get("mid", 0)),
             "red_stops": int(bucket_counts.get("low", 0)),
             "total_relevant_stops": int(len(relevant_hos_summary)),
         })
 
-    return pd.DataFrame(rows)
+    out = pd.DataFrame(rows)
+    if not out.empty:
+        # The visible frontier should move outward or stay flat as HOS increases.
+        out["frontier_distance_mi"] = out["raw_frontier_distance_mi"].cummax()
+
+    return out
 
 
 def build_hos_frontier_map(scenario_df: pd.DataFrame, frontier_summary: pd.DataFrame):
@@ -315,10 +355,15 @@ def build_hos_frontier_map(scenario_df: pd.DataFrame, frontier_summary: pd.DataF
             location=[source_lat, source_lon],
             radius=radius_m,
             color=color,
-            fill=False,
+            fill=True,
+            fill_color=color,
+            fill_opacity=0.10,
             weight=3,
-            opacity=0.70,
-            popup=f"HOS {hos_hour}: {row['frontier_distance_mi']:.1f} miles"
+            opacity=0.75,
+            popup=(
+                f"HOS {hos_hour}: displayed frontier {row['frontier_distance_mi']:.1f} mi "
+                f"(raw weighted stop distance {row['raw_frontier_distance_mi']:.1f} mi)"
+            ),
         ).add_to(m)
 
     # Show each relevant stop once, colored using its overall simulation bucket.
@@ -359,7 +404,7 @@ def build_hos_frontier_map(scenario_df: pd.DataFrame, frontier_summary: pd.DataF
     legend_html = f"""
     <div style="position: fixed; bottom: 40px; left: 40px; width: 310px; z-index: 9999;
         background-color: white; border: 2px solid grey; border-radius: 8px; padding: 12px; font-size: 14px;">
-        <b>HOS Frontier Legend</b><br><br>
+        <b>HOS Frontier Legend</b><br><br>Filled zones are data-driven HOS frontiers.<br><br>
         <span style="color: blue;">●</span> Average source / destination<br>
         <span style="color: green;">●</span> High relevant stop<br>
         <span style="color: yellow;">●</span> Mid relevant stop<br>
@@ -380,8 +425,9 @@ def show_hos_frontier_page():
         return
 
     st.caption(
-        "Each ring shows the average distance reachable from the average simulated driver origin for that HOS hour. "
-        "The stop colors use the same relevant-stop red/yellow/green buckets used in Simulation Results."
+        "Each filled zone shows the data-driven frontier for that HOS hour, based on the weighted average distance "
+        "of relevant feasible stops available to the driver. The visible frontier is cumulative, so it moves outward as HOS increases. "
+        "Stop colors use the same relevant-stop red/yellow/green buckets used in Simulation Results."
     )
 
     frontier_summary = build_hos_frontier_summary(scenario_df)
@@ -391,11 +437,13 @@ def show_hos_frontier_page():
 
     st.markdown("### Relevant stop counts by HOS")
     display_df = frontier_summary[[
-        "hos_hour", "frontier_distance_mi", "green_stops", "yellow_stops", "red_stops", "total_relevant_stops"
+        "hos_hour", "raw_frontier_distance_mi", "frontier_distance_mi",
+        "green_stops", "yellow_stops", "red_stops", "total_relevant_stops"
     ]].copy()
     display_df.rename(columns={
         "hos_hour": "HOS Hour",
-        "frontier_distance_mi": "Reachable Distance (mi)",
+        "raw_frontier_distance_mi": "Weighted Stop Distance (mi)",
+        "frontier_distance_mi": "Displayed Frontier Distance (mi)",
         "green_stops": "Green Stops",
         "yellow_stops": "Yellow Stops",
         "red_stops": "Red Stops",
