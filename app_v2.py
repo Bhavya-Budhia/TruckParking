@@ -397,24 +397,108 @@ def build_hos_frontier_map(scenario_df: pd.DataFrame, frontier_summary: pd.DataF
         bounds_points += overall_summary[["lat", "lng"]].values.tolist()
     m.fit_bounds(bounds_points)
 
-    frontier_items = "".join(
-        f'<span style="color: {FRONTIER_COLORS.get(int(row["hos_hour"]), "gray")};">●</span> HOS {int(row["hos_hour"])} frontier: {row["frontier_distance_mi"]:.1f} mi<br>'
-        for _, row in frontier_summary.iterrows()
-    )
-    legend_html = f"""
-    <div style="position: fixed; bottom: 40px; left: 40px; width: 310px; z-index: 9999;
-        background-color: white; border: 2px solid grey; border-radius: 8px; padding: 12px; font-size: 14px;">
-        <b>HOS Frontier Legend</b><br><br>Filled zones are data-driven HOS frontiers.<br><br>
-        <span style="color: blue;">●</span> Average source / destination<br>
-        <span style="color: green;">●</span> High relevant stop<br>
-        <span style="color: yellow;">●</span> Mid relevant stop<br>
-        <span style="color: red;">●</span> Low relevant stop<br><br>
-        {frontier_items}
-    </div>
-    """
-    m.get_root().html.add_child(Element(legend_html))
     return m
 
+
+def render_hos_frontier_side_legend(frontier_summary: pd.DataFrame):
+    """Render the HOS frontier legend outside the Folium map.
+
+    This uses Streamlit's HTML component instead of st.markdown, so the HTML
+    cannot accidentally be interpreted as a Markdown code block.
+    """
+    frontier_rows = []
+    if frontier_summary is not None and not frontier_summary.empty:
+        for _, row in frontier_summary.iterrows():
+            hos_hour = int(row["hos_hour"])
+            color = FRONTIER_COLORS.get(hos_hour, "gray")
+            frontier_rows.append(
+                f'<div class="legend-row">'
+                f'<span class="legend-dot" style="background:{color};"></span>'
+                f'<span>HOS {hos_hour}</span>'
+                f'<span class="legend-value">{row["frontier_distance_mi"]:.1f} mi</span>'
+                f'</div>'
+            )
+
+    frontier_html = "".join(frontier_rows) if frontier_rows else "<p>No frontier data available.</p>"
+
+    legend_html = f"""<!DOCTYPE html>
+<html>
+<head>
+<style>
+body {{
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    color: #31333f;
+}}
+.legend-card {{
+    background: #ffffff;
+    border: 1px solid rgba(49, 51, 63, 0.16);
+    border-radius: 18px;
+    padding: 18px 16px;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.08);
+}}
+.legend-title {{
+    font-size: 20px;
+    font-weight: 800;
+    margin-bottom: 14px;
+}}
+.legend-section-title {{
+    font-size: 13px;
+    font-weight: 800;
+    color: #596579;
+    margin-top: 14px;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}}
+.legend-row {{
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0;
+    font-size: 14px;
+}}
+.legend-dot {{
+    width: 12px;
+    height: 12px;
+    border-radius: 999px;
+    display: inline-block;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    flex: 0 0 12px;
+}}
+.legend-value {{
+    margin-left: auto;
+    font-weight: 700;
+    color: #2f3b52;
+}}
+.legend-note {{
+    margin-top: 16px;
+    padding: 12px;
+    border-radius: 12px;
+    background: #f6f8fb;
+    color: #465268;
+    font-size: 13px;
+    line-height: 1.35;
+}}
+</style>
+</head>
+<body>
+<div class="legend-card">
+    <div class="legend-title">Map Legend</div>
+    <div class="legend-section-title">Stops</div>
+    <div class="legend-row"><span class="legend-dot" style="background:green;"></span><span>High utility</span></div>
+    <div class="legend-row"><span class="legend-dot" style="background:gold;"></span><span>Medium utility</span></div>
+    <div class="legend-row"><span class="legend-dot" style="background:red;"></span><span>Low utility</span></div>
+    <div class="legend-row"><span class="legend-dot" style="background:blue;"></span><span>Avg. source / destination</span></div>
+    <div class="legend-section-title">HOS Frontier</div>
+    {frontier_html}
+    <div class="legend-note">Filled zones show the data-driven reachable frontier. Radius is based on relevant feasible stops, then made cumulative so the frontier does not shrink as HOS increases.</div>
+</div>
+</body>
+</html>"""
+
+    html(legend_html, height=520, scrolling=False)
 
 def show_hos_frontier_page():
     st.subheader("HOS Frontier Movement")
@@ -433,7 +517,11 @@ def show_hos_frontier_page():
     frontier_summary = build_hos_frontier_summary(scenario_df)
 
     st.markdown("### Frontier map")
-    html(build_hos_frontier_map(scenario_df, frontier_summary)._repr_html_(), height=750, scrolling=True)
+    map_col, legend_col = st.columns([4, 1.15])
+    with map_col:
+        html(build_hos_frontier_map(scenario_df, frontier_summary)._repr_html_(), height=750, scrolling=True)
+    with legend_col:
+        render_hos_frontier_side_legend(frontier_summary)
 
     st.markdown("### Relevant stop counts by HOS")
     display_df = frontier_summary[[
@@ -566,6 +654,57 @@ button[data-baseweb="tab"][aria-selected="true"] {
 }
 div[data-baseweb="tab-list"] {
     gap: 8px;
+}
+.legend-card {
+    background: #ffffff;
+    border: 1px solid rgba(49, 51, 63, 0.16);
+    border-radius: 18px;
+    padding: 18px 16px;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.08);
+    margin-top: 2px;
+}
+.legend-title {
+    font-size: 20px;
+    font-weight: 800;
+    margin-bottom: 14px;
+}
+.legend-section-title {
+    font-size: 13px;
+    font-weight: 800;
+    color: #596579;
+    margin-top: 14px;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.legend-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0;
+    font-size: 14px;
+}
+.legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 999px;
+    display: inline-block;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    flex: 0 0 12px;
+}
+.legend-value {
+    margin-left: auto;
+    font-weight: 700;
+    color: #2f3b52;
+}
+.legend-note {
+    margin-top: 16px;
+    padding: 12px;
+    border-radius: 12px;
+    background: #f6f8fb;
+    color: #465268;
+    font-size: 13px;
+    line-height: 1.35;
 }
 </style>
 """, unsafe_allow_html=True)
