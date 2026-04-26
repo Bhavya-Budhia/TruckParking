@@ -162,6 +162,13 @@ def normalize_weights(weights: Optional[Dict[str, float]] = None) -> Dict[str, f
     return {k: max(float(v), 0.0) / total for k, v in merged.items()}
 
 
+def bpr_speed(base_speed, congestion, alpha=0.15, beta=4):
+    """
+    base_speed: free flow speed (mph)
+    congestion: proxy for volume/capacity ratio (0 to ~1+)
+    """
+    return base_speed / (1 + alpha * (congestion ** beta))
+
 def model_engine_func(
         driver_lat=25.7752,
         driver_lon=-80.2086,
@@ -272,10 +279,13 @@ def model_engine_func(
     if pd.isna(p90) or p90 == 0:
         p90 = 1.0
 
-    truck_stop_df["traffic_factor"] = 1 - (truck_stop_df["traffic"] / p90) * 0.5
-    truck_stop_df["traffic_factor"] = truck_stop_df["traffic_factor"].clip(lower=0.3, upper=1.0)
+    truck_stop_df["congestion_ratio"] = truck_stop_df["traffic"] / p90
+    truck_stop_df["congestion_ratio"] = truck_stop_df["congestion_ratio"].clip(lower=0.1, upper=2.0)
 
-    truck_stop_df["adj_speed_mph"] = truck_stop_df["freeflow_mph"]
+    truck_stop_df["adj_speed_mph"] = bpr_speed(
+        truck_stop_df["freeflow_mph"],
+        truck_stop_df["congestion_ratio"]
+    )
     truck_stop_df["ETA_stop_adj"] = truck_stop_df["start_time"] + pd.to_timedelta(
         truck_stop_df["truck_stop_mi"] / truck_stop_df["adj_speed_mph"], unit="h"
     )
