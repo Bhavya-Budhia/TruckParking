@@ -450,10 +450,13 @@ def build_hos_frontier_map(scenario_df: pd.DataFrame, frontier_summary: pd.DataF
             tooltip=f"HOS {hos_hour} frontier hex",
         ).add_to(m)
 
-    # Show each relevant stop once. Keep truck stops black so frontier colors remain visually clean.
+    # Show only high and medium utility stops once.
+    # High utility stops are black circles; medium utility stops are black triangles.
+    # Low utility stops are intentionally hidden to keep the frontier map focused.
     overall_summary = add_utility_buckets(get_relevant_simulation_stops(aggregate_simulation_results(scenario_df)))
+    display_stops = overall_summary[overall_summary["combined_bucket"].isin(["high", "mid"])].copy()
 
-    for _, row in overall_summary.iterrows():
+    for _, row in display_stops.iterrows():
         popup = f"""
         <b>{row['pinname']}</b><br>
         Simulation Rank: {row['simulation_rank']}<br>
@@ -463,14 +466,36 @@ def build_hos_frontier_map(scenario_df: pd.DataFrame, frontier_summary: pd.DataF
         Avg p_available: {row['avg_p_available']:.4f}<br>
         Avg Truck Stop Miles: {row['avg_truck_stop_mi']:.2f}
         """
-        folium.CircleMarker(
-            [row["lat"], row["lng"]], radius=3, color="black", fill=True,
-            fill_color="black", fill_opacity=0.9,
-            popup=folium.Popup(popup, max_width=320), tooltip=row["pinname"],
-        ).add_to(m)
+
+        if row["combined_bucket"] == "high":
+            folium.CircleMarker(
+                [row["lat"], row["lng"]],
+                radius=5,
+                color="black",
+                fill=True,
+                fill_color="black",
+                fill_opacity=0.95,
+                popup=folium.Popup(popup, max_width=320),
+                tooltip=row["pinname"],
+            ).add_to(m)
+        else:
+            folium.RegularPolygonMarker(
+                [row["lat"], row["lng"]],
+                number_of_sides=3,
+                radius=7,
+                rotation=0,
+                color="black",
+                fill=True,
+                fill_color="black",
+                fill_opacity=0.95,
+                popup=folium.Popup(popup, max_width=320),
+                tooltip=row["pinname"],
+            ).add_to(m)
 
     bounds_points = [[source_lat, source_lon], [dest_lat, dest_lon]]
-    if not overall_summary.empty:
+    if not display_stops.empty:
+        bounds_points += display_stops[["lat", "lng"]].values.tolist()
+    elif not overall_summary.empty:
         bounds_points += overall_summary[["lat", "lng"]].values.tolist()
     m.fit_bounds(bounds_points)
 
@@ -563,14 +588,25 @@ body {{
 <body>
 <div class="legend-card">
     <div class="legend-title">Map Legend</div>
-    <div class="legend-section-title">Stops</div>
-    <div class="legend-row"><span class="legend-dot" style="background:green;"></span><span>High utility</span></div>
-    <div class="legend-row"><span class="legend-dot" style="background:gold;"></span><span>Medium utility</span></div>
-    <div class="legend-row"><span class="legend-dot" style="background:red;"></span><span>Low utility</span></div>
+    <div class="legend-section-title">Stops shown</div>
+    <div class="legend-row"><span class="legend-dot" style="background:black;"></span><span>High utility stop</span></div>
+    <div class="legend-row">
+    <span style="
+        width: 0;
+        height: 0;
+        border-left: 7px solid transparent;
+        border-right: 7px solid transparent;
+        border-bottom: 14px solid black;
+        display: inline-block;
+        margin-right: 8px;
+        "></span>
+        <span>Medium utility stop</span>
+    </div>
+    
     <div class="legend-row"><span class="legend-dot" style="background:blue;"></span><span>Avg. source / destination</span></div>
+    <div class="legend-note">Low utility stops are hidden on this map so the frontier view stays focused.</div>
     <div class="legend-section-title">HOS Frontier Hexes</div>
     {frontier_html}
-    <div class="legend-note">Filled H3 zones show where relevant feasible stops first become reachable by HOS hour. The map no longer uses circles.</div>
 </div>
 </body>
 </html>"""
@@ -588,7 +624,8 @@ def show_hos_frontier_page():
     st.caption(
         "Each filled H3 zone shows where relevant feasible stops first become reachable by HOS hour. "
         "This replaces abstract circles with a data-driven hex frontier based on available stops. "
-        "Truck stops are shown in black, while the filled H3 cells show which HOS frontier each area belongs to."
+        "Only high and medium utility truck stops are shown. High utility stops are black circles, medium utility stops are black triangles. "
+        "The filled H3 cells show which HOS frontier each area belongs to."
     )
 
     frontier_summary = build_hos_frontier_summary(scenario_df)
@@ -801,6 +838,14 @@ div[data-baseweb="tab-list"] {
     display: inline-block;
     border: 1px solid rgba(0, 0, 0, 0.2);
     flex: 0 0 12px;
+}
+.legend-triangle {
+    width: 0;
+    height: 0;
+    border-left: 7px solid transparent;
+    border-right: 7px solid transparent;
+    border-bottom: 13px solid black;
+    flex: 0 0 14px;
 }
 .legend-value {
     margin-left: auto;
