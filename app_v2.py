@@ -1,5 +1,6 @@
 import altair as alt
 import folium
+import h3
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -244,6 +245,10 @@ FRONTIER_COLORS = {
     6: "#c0392b",
 }
 
+# H3 resolution for frontier zones. Resolution 5 gives smaller, cleaner highway-scale hexes.
+# The earlier resolution 4 cells looked overly chunky around Florida and water boundaries.
+H3_FRONTIER_RESOLUTION = 4
+
 
 def weighted_average_distance(distance_series: pd.Series, weight_series: pd.Series) -> float:
     """Return a utility-weighted average distance, with safe fallbacks."""
@@ -283,6 +288,7 @@ def build_hos_frontier_summary(scenario_df: pd.DataFrame) -> pd.DataFrame:
                 "yellow_stops": 0,
                 "red_stops": 0,
                 "total_relevant_stops": 0,
+                "h3_cells": 0,
             })
             continue
 
@@ -291,6 +297,15 @@ def build_hos_frontier_summary(scenario_df: pd.DataFrame) -> pd.DataFrame:
 
         bucket_counts = relevant_hos_summary[
             "combined_bucket"].value_counts() if not relevant_hos_summary.empty else pd.Series(dtype=int)
+
+        if not relevant_hos_summary.empty:
+            relevant_hos_summary["h3_cell"] = relevant_hos_summary.apply(
+                lambda r: h3.latlng_to_cell(float(r["lat"]), float(r["lng"]), H3_FRONTIER_RESOLUTION),
+                axis=1,
+            )
+            h3_cell_count = int(relevant_hos_summary["h3_cell"].nunique())
+        else:
+            h3_cell_count = 0
 
         if not relevant_hos_summary.empty:
             distance_weights = (
@@ -314,6 +329,7 @@ def build_hos_frontier_summary(scenario_df: pd.DataFrame) -> pd.DataFrame:
             "yellow_stops": int(bucket_counts.get("mid", 0)),
             "red_stops": int(bucket_counts.get("low", 0)),
             "total_relevant_stops": int(len(relevant_hos_summary)),
+            "h3_cells": h3_cell_count,
         })
 
     out = pd.DataFrame(rows)
@@ -322,6 +338,69 @@ def build_hos_frontier_summary(scenario_df: pd.DataFrame) -> pd.DataFrame:
         out["frontier_distance_mi"] = out["raw_frontier_distance_mi"].cummax()
 
     return out
+
+
+def h3_boundary_latlon(cell: str):
+    """Return H3 cell boundary in Folium's [lat, lon] format."""
+    return [[float(lat), float(lon)] for lat, lon in h3.cell_to_boundary(cell)]
+
+
+def build_hos_frontier_hexes(scenario_df: pd.DataFrame, resolution: int = H3_FRONTIER_RESOLUTION) -> pd.DataFrame:
+    """Build H3 frontier zones based on relevant feasible stops for each HOS hour.
+
+    A hex is colored by the first HOS hour where it becomes relevant. This creates a
+    filled, data-driven frontier that expands by available stop geography instead of
+    drawing abstract circles.
+    """
+    if scenario_df.empty:
+        return pd.DataFrame()
+
+    rows = []
+    already_reachable_cells = set()
+
+    for hos_hour in HOS_HOURS:
+        hos_df = scenario_df[scenario_df["hos_hour"] == int(hos_hour)].copy()
+        if hos_df.empty:
+            continue
+
+        hos_summary = aggregate_simulation_results(hos_df)
+        relevant_summary = get_relevant_simulation_stops(hos_summary)
+        if relevant_summary.empty:
+            continue
+
+        relevant_summary = relevant_summary.copy()
+        relevant_summary["h3_cell"] = relevant_summary.apply(
+            lambda r: h3.latlng_to_cell(float(r["lat"]), float(r["lng"]), resolution),
+            axis=1,
+        )
+
+        cell_summary = (
+            relevant_summary.groupby("h3_cell", as_index=False)
+            .agg(
+                stops_in_cell=("pin id", "nunique"),
+                avg_combined_utility=("combined_utility", "mean"),
+                avg_feasible_rate=("feasible_rate", "mean"),
+                avg_p_available=("avg_p_available", "mean"),
+            )
+        )
+
+        for _, cell_row in cell_summary.iterrows():
+            cell = cell_row["h3_cell"]
+            if cell in already_reachable_cells:
+                continue
+
+            rows.append({
+                "h3_cell": cell,
+                "first_reachable_hos": int(hos_hour),
+                "stops_in_cell": int(cell_row["stops_in_cell"]),
+                "avg_combined_utility": float(cell_row["avg_combined_utility"]),
+                "avg_feasible_rate": float(cell_row["avg_feasible_rate"]),
+                "avg_p_available": float(cell_row["avg_p_available"]),
+            })
+
+        already_reachable_cells.update(cell_summary["h3_cell"].tolist())
+
+    return pd.DataFrame(rows)
 
 
 def build_hos_frontier_map(scenario_df: pd.DataFrame, frontier_summary: pd.DataFrame):
@@ -346,49 +425,47 @@ def build_hos_frontier_map(scenario_df: pd.DataFrame, frontier_summary: pd.DataF
         popup="Average Destination"
     ).add_to(m)
 
-    # Draw frontier rings first so the stop markers sit on top.
-    for _, row in frontier_summary.iterrows():
-        hos_hour = int(row["hos_hour"])
+    # Draw H3 frontier zones first so the stop markers sit on top.
+    frontier_hexes = build_hos_frontier_hexes(scenario_df, resolution=H3_FRONTIER_RESOLUTION)
+    for _, row in frontier_hexes.iterrows():
+        hos_hour = int(row["first_reachable_hos"])
         color = FRONTIER_COLORS.get(hos_hour, "gray")
-        radius_m = float(row["frontier_distance_mi"]) * 1609.344
-        folium.Circle(
-            location=[source_lat, source_lon],
-            radius=radius_m,
+        popup = f"""
+        <b>HOS {hos_hour} frontier hex</b><br>
+        H3 resolution: {H3_FRONTIER_RESOLUTION}<br>
+        Stops in cell: {row['stops_in_cell']}<br>
+        Avg combined utility: {row['avg_combined_utility']:.4f}<br>
+        Avg feasible rate: {row['avg_feasible_rate']:.2%}<br>
+        Avg p_available: {row['avg_p_available']:.4f}
+        """
+        folium.Polygon(
+            locations=h3_boundary_latlon(row["h3_cell"]),
             color=color,
             fill=True,
             fill_color=color,
-            fill_opacity=0.10,
-            weight=3,
-            opacity=0.75,
-            popup=(
-                f"HOS {hos_hour}: displayed frontier {row['frontier_distance_mi']:.1f} mi "
-                f"(raw weighted stop distance {row['raw_frontier_distance_mi']:.1f} mi)"
-            ),
+            fill_opacity=0.22,
+            weight=1.0,
+            opacity=0.85,
+            popup=folium.Popup(popup, max_width=320),
+            tooltip=f"HOS {hos_hour} frontier hex",
         ).add_to(m)
 
-    # Show each relevant stop once, colored using its overall simulation bucket.
+    # Show each relevant stop once. Keep truck stops black so frontier colors remain visually clean.
     overall_summary = add_utility_buckets(get_relevant_simulation_stops(aggregate_simulation_results(scenario_df)))
 
-    def get_color(bucket):
-        if bucket == "high":
-            return "green"
-        if bucket == "mid":
-            return "yellow"
-        return "red"
-
     for _, row in overall_summary.iterrows():
-        color = get_color(row["combined_bucket"])
         popup = f"""
         <b>{row['pinname']}</b><br>
         Simulation Rank: {row['simulation_rank']}<br>
         Combined Utility: {row['combined_utility']:.4f}<br>
         Feasible Rate: {row['feasible_rate']:.2%}<br>
+        Utility Bucket: {row['combined_bucket']}<br>
         Avg p_available: {row['avg_p_available']:.4f}<br>
         Avg Truck Stop Miles: {row['avg_truck_stop_mi']:.2f}
         """
         folium.CircleMarker(
-            [row["lat"], row["lng"]], radius=6, color=color, fill=True,
-            fill_color=color, fill_opacity=0.9,
+            [row["lat"], row["lng"]], radius=3, color="black", fill=True,
+            fill_color="black", fill_opacity=0.9,
             popup=folium.Popup(popup, max_width=320), tooltip=row["pinname"],
         ).add_to(m)
 
@@ -491,9 +568,9 @@ body {{
     <div class="legend-row"><span class="legend-dot" style="background:gold;"></span><span>Medium utility</span></div>
     <div class="legend-row"><span class="legend-dot" style="background:red;"></span><span>Low utility</span></div>
     <div class="legend-row"><span class="legend-dot" style="background:blue;"></span><span>Avg. source / destination</span></div>
-    <div class="legend-section-title">HOS Frontier</div>
+    <div class="legend-section-title">HOS Frontier Hexes</div>
     {frontier_html}
-    <div class="legend-note">Filled zones show the data-driven reachable frontier. Radius is based on relevant feasible stops, then made cumulative so the frontier does not shrink as HOS increases.</div>
+    <div class="legend-note">Filled H3 zones show where relevant feasible stops first become reachable by HOS hour. The map no longer uses circles.</div>
 </div>
 </body>
 </html>"""
@@ -509,9 +586,9 @@ def show_hos_frontier_page():
         return
 
     st.caption(
-        "Each filled zone shows the data-driven frontier for that HOS hour, based on the weighted average distance "
-        "of relevant feasible stops available to the driver. The visible frontier is cumulative, so it moves outward as HOS increases. "
-        "Stop colors use the same relevant-stop red/yellow/green buckets used in Simulation Results."
+        "Each filled H3 zone shows where relevant feasible stops first become reachable by HOS hour. "
+        "This replaces abstract circles with a data-driven hex frontier based on available stops. "
+        "Truck stops are shown in black, while the filled H3 cells show which HOS frontier each area belongs to."
     )
 
     frontier_summary = build_hos_frontier_summary(scenario_df)
@@ -526,7 +603,7 @@ def show_hos_frontier_page():
     st.markdown("### Relevant stop counts by HOS")
     display_df = frontier_summary[[
         "hos_hour", "raw_frontier_distance_mi", "frontier_distance_mi",
-        "green_stops", "yellow_stops", "red_stops", "total_relevant_stops"
+        "green_stops", "yellow_stops", "red_stops", "total_relevant_stops", "h3_cells"
     ]].copy()
     display_df.rename(columns={
         "hos_hour": "HOS Hour",
@@ -536,6 +613,7 @@ def show_hos_frontier_page():
         "yellow_stops": "Yellow Stops",
         "red_stops": "Red Stops",
         "total_relevant_stops": "Total Relevant Stops",
+        "h3_cells": "H3 Cells",
     }, inplace=True)
     st.dataframe(display_df, use_container_width=True)
 
