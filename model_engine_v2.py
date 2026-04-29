@@ -11,13 +11,14 @@ from scgraph.geographs.us_freeway import us_freeway_geograph
 
 path = r"C:\Users\bhavy\Massachusetts Institute of Technology\Truck Parking Capstone - General\Truck Stop Finder 🚚⛽\\"
 
-DEFAULT_UTILITY_WEIGHTS: Dict[str, float] = {
-    "parking": 0.30,
-    "amenities": 0.20,
+DEFAULT_UTILITY_WEIGHTS = {
+    "parking": 0.25,
+    "amenities": 0.15,
     "capacity": 0.15,
     "detour": 0.20,
     "traffic": 0.10,
     "remaining_route": 0.05,
+    "hos_utilization": 0.10,
 }
 
 
@@ -319,6 +320,11 @@ def model_engine_func(
     truck_stop_df["min_dist"] = truck_stop_df["truck_stop_mi"].min()
     truck_stop_df["extra_dist"] = truck_stop_df["truck_stop_mi"] - truck_stop_df["min_dist"]
     truck_stop_df["time_to_stop_hr_adj"] = truck_stop_df["truck_stop_mi"] / truck_stop_df["adj_speed_mph"]
+
+    truck_stop_df["score_hos_utilization"] = (
+            truck_stop_df["time_to_stop_hr_adj"] / truck_stop_df["HOS_left_hr"]
+    ).clip(lower=0, upper=1).fillna(0)
+
     truck_stop_df["HOS_exceeded"] = (truck_stop_df["time_to_stop_hr_adj"] > truck_stop_df["HOS_left_hr"]).astype(int)
     truck_stop_df["detour_mi"] = truck_stop_df["truck_stop_mi"] + truck_stop_df["stop_dest_mi"] - truck_stop_df[
         "truck_dest_mi"]
@@ -343,6 +349,7 @@ def model_engine_func(
             + weights["detour"] * truck_stop_df["score_detour"]
             + weights["traffic"] * truck_stop_df["score_traffic"]
             + weights["remaining_route"] * truck_stop_df["stop_dest_norm"]
+            + weights["hos_utilization"] * truck_stop_df["score_hos_utilization"]
     )
 
     truck_stop_df["scenario_utility"] = np.where(truck_stop_df["feasible_stop"] == 1, truck_stop_df["utility_score"],
@@ -360,6 +367,8 @@ def model_engine_func(
     truck_stop_df["utility_weight_detour"] = weights["detour"]
     truck_stop_df["utility_weight_traffic"] = weights["traffic"]
     truck_stop_df["utility_weight_remaining_route"] = weights["remaining_route"]
+    truck_stop_df["utility_weight_hos_utilization"] = weights["hos_utilization"]
+
     if scenario_id is not None:
         truck_stop_df["scenario_id"] = str(scenario_id)
 
