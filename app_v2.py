@@ -237,12 +237,12 @@ def build_simulation_map(summary_df: pd.DataFrame, scenario_df: pd.DataFrame, ti
 
 
 FRONTIER_COLORS = {
-    1: "#8e44ad",
-    2: "#2980b9",
-    3: "#16a085",
-    4: "#f39c12",
-    5: "#d35400",
-    6: "#c0392b",
+    1: "#8e44ad",  # purple
+    2: "#2980b9",  # blue
+    3: "#16a085",  # teal
+    4: "#f1c40f",  # yellow
+    5: "#e67e22",  # orange
+    6: "#2c3e50",  # dark navy
 }
 
 # H3 resolution for frontier zones. Resolution 5 gives smaller, cleaner highway-scale hexes.
@@ -470,7 +470,7 @@ def build_hos_frontier_map(scenario_df: pd.DataFrame, frontier_summary: pd.DataF
         if row["combined_bucket"] == "high":
             folium.CircleMarker(
                 [row["lat"], row["lng"]],
-                radius=5,
+                radius=3,
                 color="black",
                 fill=True,
                 fill_color="black",
@@ -482,7 +482,7 @@ def build_hos_frontier_map(scenario_df: pd.DataFrame, frontier_summary: pd.DataF
             folium.RegularPolygonMarker(
                 [row["lat"], row["lng"]],
                 number_of_sides=3,
-                radius=7,
+                radius=3,
                 rotation=0,
                 color="black",
                 fill=True,
