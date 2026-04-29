@@ -602,7 +602,7 @@ body {{
         "></span>
         <span>Medium utility stop</span>
     </div>
-    
+
     <div class="legend-row"><span class="legend-dot" style="background:blue;"></span><span>Avg. source / destination</span></div>
     <div class="legend-note">Low utility stops are hidden on this map so the frontier view stays focused.</div>
     <div class="legend-section-title">HOS Frontier Hexes</div>
@@ -612,6 +612,35 @@ body {{
 </html>"""
 
     html(legend_html, height=520, scrolling=False)
+
+
+def get_frontier_time_options(scenario_df: pd.DataFrame):
+    """Return available start-hour options for the HOS frontier page."""
+    if scenario_df is None or scenario_df.empty or "start_time" not in scenario_df.columns:
+        return ["All"]
+
+    hours = (
+        pd.to_datetime(scenario_df["start_time"], utc=True, errors="coerce")
+        .dt.hour
+        .dropna()
+        .astype(int)
+        .sort_values()
+        .unique()
+        .tolist()
+    )
+    return ["All"] + [f"{h:02d}:00 UTC" for h in hours]
+
+
+def filter_frontier_by_start_hour(scenario_df: pd.DataFrame, selected_hour_label: str) -> pd.DataFrame:
+    """Filter scenario rows to one start hour while keeping all HOS values."""
+    if selected_hour_label == "All" or scenario_df.empty or "start_time" not in scenario_df.columns:
+        return scenario_df.copy()
+
+    selected_hour = int(selected_hour_label.split(":")[0])
+    out = scenario_df.copy()
+    out["frontier_start_hour"] = pd.to_datetime(out["start_time"], utc=True, errors="coerce").dt.hour
+    return out[out["frontier_start_hour"] == selected_hour].copy()
+
 
 def show_hos_frontier_page():
     st.subheader("HOS Frontier Movement")
@@ -623,17 +652,38 @@ def show_hos_frontier_page():
 
     st.caption(
         "Each filled H3 zone shows where relevant feasible stops first become reachable by HOS hour. "
-        "This replaces abstract circles with a data-driven hex frontier based on available stops. "
+        "Use the hour filter below to compare the frontier for different times of day. "
         "Only high and medium utility truck stops are shown. High utility stops are black circles, medium utility stops are black triangles. "
         "The filled H3 cells show which HOS frontier each area belongs to."
     )
 
-    frontier_summary = build_hos_frontier_summary(scenario_df)
+    hour_options = get_frontier_time_options(scenario_df)
+    selected_hour = st.selectbox(
+        "Show frontier for start hour",
+        options=hour_options,
+        index=0,
+        help="Filters the frontier map to scenarios that start in this UTC hour. Choose All to combine all times of day.",
+    )
+
+    frontier_scenario_df = filter_frontier_by_start_hour(scenario_df, selected_hour)
+    if frontier_scenario_df.empty:
+        st.warning("No frontier scenarios are available for the selected hour.")
+        return
+
+    if selected_hour == "All":
+        st.info("Showing combined frontier across all simulated start hours.")
+    else:
+        included_windows = sorted(frontier_scenario_df[
+                                      "time_window"].dropna().unique().tolist()) if "time_window" in frontier_scenario_df.columns else []
+        st.info(
+            f"Showing frontier for scenarios starting at {selected_hour}. Included window(s): {', '.join(included_windows) if included_windows else 'N/A'}.")
+
+    frontier_summary = build_hos_frontier_summary(frontier_scenario_df)
 
     st.markdown("### Frontier map")
     map_col, legend_col = st.columns([4, 1.15])
     with map_col:
-        html(build_hos_frontier_map(scenario_df, frontier_summary)._repr_html_(), height=750, scrolling=True)
+        html(build_hos_frontier_map(frontier_scenario_df, frontier_summary)._repr_html_(), height=750, scrolling=True)
     with legend_col:
         render_hos_frontier_side_legend(frontier_summary)
 
@@ -721,6 +771,7 @@ def show_hos_frontier_page():
         st.altair_chart(stop_count_chart, use_container_width=True)
     with chart_right:
         st.altair_chart(distance_chart, use_container_width=True)
+
 
 def show_simulation_results_page():
     st.subheader("Simulation Results")
