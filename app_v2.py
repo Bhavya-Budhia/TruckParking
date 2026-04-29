@@ -617,7 +617,9 @@ def show_hos_frontier_page():
     }, inplace=True)
     st.dataframe(display_df, use_container_width=True)
 
-    st.markdown("### Stop count trend by HOS")
+    st.markdown("### HOS trend charts")
+    chart_left, chart_right = st.columns(2)
+
     chart_df = frontier_summary[["hos_hour", "green_stops", "yellow_stops", "red_stops"]].copy()
     chart_df.rename(columns={
         "hos_hour": "HOS Hour",
@@ -633,7 +635,7 @@ def show_hos_frontier_page():
         value_name="Stop Count",
     )
 
-    trend_chart = (
+    stop_count_chart = (
         alt.Chart(chart_long)
         .mark_line(point=True, strokeWidth=3)
         .encode(
@@ -649,9 +651,39 @@ def show_hos_frontier_page():
             ),
             tooltip=["HOS Hour:O", "Stop Category:N", "Stop Count:Q"],
         )
-        .properties(height=360)
+        .properties(height=360, title="Relevant stop count by HOS")
     )
-    st.altair_chart(trend_chart, use_container_width=True)
+
+    distance_df = frontier_summary[["hos_hour", "raw_frontier_distance_mi", "frontier_distance_mi"]].copy()
+    distance_df.rename(columns={
+        "hos_hour": "HOS Hour",
+        "raw_frontier_distance_mi": "Weighted Avg Distance",
+        "frontier_distance_mi": "Displayed Frontier Distance",
+    }, inplace=True)
+
+    distance_long = distance_df.melt(
+        id_vars="HOS Hour",
+        value_vars=["Weighted Avg Distance", "Displayed Frontier Distance"],
+        var_name="Distance Type",
+        value_name="Miles",
+    )
+
+    distance_chart = (
+        alt.Chart(distance_long)
+        .mark_line(point=True, strokeWidth=3)
+        .encode(
+            x=alt.X("HOS Hour:O", title="HOS Hour"),
+            y=alt.Y("Miles:Q", title="Distance (miles)"),
+            color=alt.Color("Distance Type:N", title="Distance Type"),
+            tooltip=["HOS Hour:O", "Distance Type:N", alt.Tooltip("Miles:Q", format=".1f")],
+        )
+        .properties(height=360, title="Weighted average distance trend")
+    )
+
+    with chart_left:
+        st.altair_chart(stop_count_chart, use_container_width=True)
+    with chart_right:
+        st.altair_chart(distance_chart, use_container_width=True)
 
 def show_simulation_results_page():
     st.subheader("Simulation Results")
