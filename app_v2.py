@@ -680,7 +680,7 @@ def show_hos_frontier_page():
 
     frontier_summary = build_hos_frontier_summary(frontier_scenario_df)
 
-    st.markdown("### Frontier map")
+    st.markdown("### Frontier Map")
     map_col, legend_col = st.columns([4, 1.15])
     with map_col:
         html(build_hos_frontier_map(frontier_scenario_df, frontier_summary)._repr_html_(), height=750, scrolling=True)
