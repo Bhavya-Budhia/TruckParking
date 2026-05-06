@@ -451,10 +451,17 @@ def build_hos_frontier_map(scenario_df: pd.DataFrame, frontier_summary: pd.DataF
         ).add_to(m)
 
     # Show only high and medium utility stops once.
-    # High utility stops are black circles; medium utility stops are black triangles.
-    # Low utility stops are intentionally hidden to keep the frontier map focused.
-    overall_summary = add_utility_buckets(get_relevant_simulation_stops(aggregate_simulation_results(scenario_df)))
-    display_stops = overall_summary[overall_summary["combined_bucket"].isin(["high", "mid"])].copy()
+    # High utility = red dots
+    # Medium utility = yellow dots
+    overall_summary = add_utility_buckets(
+        get_relevant_simulation_stops(
+            aggregate_simulation_results(scenario_df)
+        )
+    )
+
+    display_stops = overall_summary[
+        overall_summary["combined_bucket"].isin(["high", "mid"])
+    ].copy()
 
     for _, row in display_stops.iterrows():
         popup = f"""
@@ -467,30 +474,18 @@ def build_hos_frontier_map(scenario_df: pd.DataFrame, frontier_summary: pd.DataF
         Avg Truck Stop Miles: {row['avg_truck_stop_mi']:.2f}
         """
 
-        if row["combined_bucket"] == "high":
-            folium.CircleMarker(
-                [row["lat"], row["lng"]],
-                radius=3,
-                color="black",
-                fill=True,
-                fill_color="black",
-                fill_opacity=0.95,
-                popup=folium.Popup(popup, max_width=320),
-                tooltip=row["pinname"],
-            ).add_to(m)
-        else:
-            folium.RegularPolygonMarker(
-                [row["lat"], row["lng"]],
-                number_of_sides=3,
-                radius=3,
-                rotation=0,
-                color="black",
-                fill=True,
-                fill_color="black",
-                fill_opacity=0.95,
-                popup=folium.Popup(popup, max_width=320),
-                tooltip=row["pinname"],
-            ).add_to(m)
+        color = "green" if row["combined_bucket"] == "high" else "yellow"
+
+        folium.CircleMarker(
+            [row["lat"], row["lng"]],
+            radius=4,
+            color=color,
+            fill=True,
+            fill_color=color,
+            fill_opacity=0.95,
+            popup=folium.Popup(popup, max_width=320),
+            tooltip=row["pinname"],
+        ).add_to(m)
 
     bounds_points = [[source_lat, source_lon], [dest_lat, dest_lon]]
     if not display_stops.empty:
@@ -589,17 +584,13 @@ body {{
 <div class="legend-card">
     <div class="legend-title">Map Legend</div>
     <div class="legend-section-title">Stops shown</div>
-    <div class="legend-row"><span class="legend-dot" style="background:black;"></span><span>High utility stop</span></div>
     <div class="legend-row">
-    <span style="
-        width: 0;
-        height: 0;
-        border-left: 7px solid transparent;
-        border-right: 7px solid transparent;
-        border-bottom: 14px solid black;
-        display: inline-block;
-        margin-right: 8px;
-        "></span>
+        <span class="legend-dot" style="background:green;"></span>
+        <span>High utility stop</span>
+    </div>
+    
+    <div class="legend-row">
+        <span class="legend-dot" style="background:gold;"></span>
         <span>Medium utility stop</span>
     </div>
 
