@@ -943,8 +943,21 @@ with tabs[0]:
         with st.spinner("Running single scenario..."):
             df = run_single_cached(driver_lat, driver_lon, dest_lat, dest_lon, hos_left_hr, freeflow_mph, start_time)
             show_cols = [
-                "utility_rank", "pinname", "utility_score", "feasible_stop", "p_available", "p_full",
-                "truck_stop_mi", "stop_dest_mi", "detour_mi", "amenities_score", "truckParkingSpotCount"
+                "utility_rank",
+                "pinname",
+                "utility_score",
+                "feasible_stop",
+                "out_of_way_stop",
+                "out_of_way_reason",
+                "route_progress_pct",
+                "excess_detour_mi",
+                "p_available",
+                "p_full",
+                "truck_stop_mi",
+                "stop_dest_mi",
+                "detour_mi",
+                "amenities_score",
+                "truckParkingSpotCount"
             ]
             st.dataframe(df[show_cols].head(20), use_container_width=True)
             html(build_single_run_map(df)._repr_html_(), height=700, scrolling=True)

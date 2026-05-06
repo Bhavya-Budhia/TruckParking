@@ -329,9 +329,51 @@ def model_engine_func(
     truck_stop_df["detour_mi"] = truck_stop_df["truck_stop_mi"] + truck_stop_df["stop_dest_mi"] - truck_stop_df[
         "truck_dest_mi"]
 
+    # Identify out-of-way stops
+    truck_stop_df["route_progress_pct"] = (
+            (
+                    truck_stop_df["truck_stop_mi"] ** 2
+                    + truck_stop_df["truck_dest_mi"] ** 2
+                    - truck_stop_df["stop_dest_mi"] ** 2
+            )
+            / (2 * truck_stop_df["truck_dest_mi"] ** 2)
+    )
+
+    truck_stop_df["behind_source"] = truck_stop_df["route_progress_pct"] < -0.05
+    truck_stop_df["beyond_destination"] = truck_stop_df["route_progress_pct"] > 1.05
+
+    truck_stop_df["excess_detour_mi"] = (
+            truck_stop_df["truck_stop_mi"]
+            + truck_stop_df["stop_dest_mi"]
+            - truck_stop_df["truck_dest_mi"]
+    )
+
+    # truck_stop_df["out_of_corridor"] = (
+    #         (truck_stop_df["excess_detour_mi"] > 25)
+    #         | (truck_stop_df["excess_detour_mi"] > 0.15 * truck_stop_df["truck_dest_mi"])
+    # )
+
+    truck_stop_df["out_of_way_stop"] = (
+            truck_stop_df["behind_source"]
+            | truck_stop_df["beyond_destination"]
+    )
+
+    truck_stop_df["out_of_way_reason"] = np.select(
+        [
+            truck_stop_df["behind_source"],
+            truck_stop_df["beyond_destination"]
+        ],
+        [
+            "Behind source",
+            "Beyond destination"
+        ],
+        default="On route"
+    )
+
     truck_stop_df["feasible_stop"] = (
             (truck_stop_df["HOS_exceeded"] == 0)
             & (truck_stop_df["truck_stop_after_dest"] == 0)
+            & (truck_stop_df["out_of_way_stop"] == 0)
             & (truck_stop_df["p_available"] >= 0.40)
     ).astype(int)
 
