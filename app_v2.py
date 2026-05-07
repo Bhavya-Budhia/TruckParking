@@ -97,6 +97,8 @@ def build_single_run_map(df: pd.DataFrame):
         Detour (mi): {row['detour_mi']:.2f}<br>
         Amenities: {row['amenities_score']:.4f}<br>
         Spots: {row['truckParkingSpotCount']}
+        Stop Dest Dist (mi): {row['stop_dest_mi']:.2f}<br>
+        Stop Dest Norm: {row['stop_dest_norm']:.4f}<br>
         """
         folium.CircleMarker(
             [row["lat"], row["lng"]], radius=6, color=color, fill=True,
@@ -210,6 +212,7 @@ def build_simulation_map(summary_df: pd.DataFrame, scenario_df: pd.DataFrame, ti
         Top-10 Rate: {row['top_10_rate']:.2%}<br>
         Avg p_available: {row['avg_p_available']:.4f}<br>
         Avg Detour (mi): {row['avg_detour_mi']:.2f}
+        Avg Stop Dest Dist (mi): {row['avg_stop_dest_mi']:.2f}<br>
         """
         color = get_color(row["combined_bucket"])
         folium.CircleMarker(

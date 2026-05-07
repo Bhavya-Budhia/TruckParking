@@ -12,12 +12,12 @@ from scgraph.geographs.us_freeway import us_freeway_geograph
 path = r"C:\Users\bhavy\Massachusetts Institute of Technology\Truck Parking Capstone - General\Truck Stop Finder 🚚⛽\\"
 
 DEFAULT_UTILITY_WEIGHTS = {
-    "parking": 0.25,
+    "parking": 0.20,
     "amenities": 0.15,
     "capacity": 0.15,
     "detour": 0.20,
     "traffic": 0.10,
-    "remaining_route": 0.05,
+    "remaining_route": 0.9,
     "hos_utilization": 0.10,
 }
 
